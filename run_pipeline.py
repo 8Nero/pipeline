@@ -38,7 +38,7 @@ Examples:
     protocol = setup(config_path=args.config)
     
     # Add runtime arguments to protocol
-    protocol['probe_filter'] = args.get('probe', None)
+    protocol['probe_filter'] = args.probe
     if protocol['probe_filter']:
         logger.info(f"Probe filter: {protocol['probe_filter']}")
 
