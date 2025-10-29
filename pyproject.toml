@@ -17,6 +17,7 @@ dependencies = [
     "probeinterface>=0.2.21",
     "kilosort>=4.0.30",
     "torch>=2.0",
+    "pynapple>=0.9.0",
 ]
 
 [build-system]

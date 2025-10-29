@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import argparse
 from pathlib import Path
-from kilosort_pipeline.utils import setup, copy_to_remote
-from kilosort_pipeline.kilosort_pipeline import kilosort_pipeline
+from kilosort_pipeline.utils import setup
+from kilosort_pipeline.workflow import run_full_pipeline
 from loguru import logger
 
 
@@ -34,12 +34,16 @@ Examples:
     
     args = parser.parse_args()
     
-    protocol = setup(config_path=args.config, probe_filter=args.probe)
-    probe_concat = kilosort_pipeline(protocol)
+    # Setup pipeline configuration
+    protocol = setup(config_path=args.config)
+    
+    # Add runtime arguments to protocol
+    protocol['probe_filter'] = args.get('probe', None)
+    if protocol['probe_filter']:
+        logger.info(f"Probe filter: {protocol['probe_filter']}")
 
-    if probe_concat:
-        logger.info(f"Copying to remote path {protocol['base_output']}")
-        copy_to_remote(Path(protocol['local_output']), protocol['base_output'])
+    run_full_pipeline(protocol)
 
 if __name__ == '__main__':
     main()
+

@@ -74,6 +74,7 @@ python -m run_pipeline --probe ProbeA
 python -m run_pipeline --probe ProbeA ProbeB
 ```
 
+
 ## Output Structure
 
 ```
@@ -84,10 +85,12 @@ python -m run_pipeline --probe ProbeA ProbeB
 │   │   └── traces_cached_seg0.raw  # Concatenated binary file
 │   ├── eeg/
 │   │   └── eeg_data.bin            # Downsampled EEG (if target_fs set)
-│   └── kilosort/                   # Kilosort4 outputs
-│       ├── spike_times.npy
-│       ├── spike_clusters.npy
-│       └── ...
+│   ├── kilosort/                   # Kilosort4 outputs
+│   │   ├── spike_times.npy
+│   │   ├── spike_clusters.npy
+│   │   └── ...
+│   └── sync/                       # Synchronized spikes
+│       └── spike_times_synced.npy  # Spike times in ADC time scale
 └── ProbeB/
     ├── ...
 ```
