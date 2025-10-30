@@ -41,7 +41,7 @@ def run_full_pipeline(protocol):
     
     probe_concat = concat(
         probe_recordings=probe_recordings,
-        output_path=protocol['output_path'],
+        output_path=protocol['local_output'],
         save_kwargs=protocol['save_kwargs'],
         target_fs=protocol['target_fs']
     )
@@ -52,7 +52,7 @@ def run_full_pipeline(protocol):
 
     run_kilosort4(
         probe_concat=probe_concat,
-        output_path=protocol['output_path']
+        output_path=protocol['local_output']
     )
     
     run_synchronization(protocol)

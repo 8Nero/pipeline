@@ -1,3 +1,8 @@
+import os
+os.environ['OPENBLAS_NUM_THREADS'] = '16'
+os.environ['OMP_NUM_THREADS'] = '16'
+os.environ['NUM_THREADS'] = '16'
+
 from pathlib import Path
 import numpy as np
 
@@ -66,7 +71,8 @@ def run_kilosort4(probe_concat, output_path, device='cuda', custom_settings=None
                 data_dtype='int16',
                 filename=str(binary_file),
                 results_dir=str(kilosort_output),
-                device=device
+                device=device,
+                verbose_console=True
             )
             
             logger.success(f"Kilosort4 completed for {probe_name}")
