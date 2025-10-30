@@ -22,8 +22,8 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 ### 2. Clone and install in one step
 ```bash
-git clone https://github.com/Senzai-Lab/kilosort_pipeline.git
-cd kilosort_pipeline
+git clone https://github.com/8Nero/pipeline.git
+cd pipeline
 uv sync
 ```
 
@@ -42,7 +42,7 @@ source .venv/bin/activate
 
 ## Using the pipeline
 
-1. **Edit `config.yaml`:**
+1. **Create `config.yaml`:**
 
 ```yaml
 session_name: "session_name"      # timestamp auto-appended
