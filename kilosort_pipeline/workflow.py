@@ -59,7 +59,7 @@ def run_full_pipeline(protocol):
     
     logger.info(f"Copying to: {protocol['base_output']}")
     copy_to_remote(
-        local_path=Path(protocol['local_output']),
+        local_path=protocol['local_output'],
         remote_path=protocol['base_output']
     )
     logger.success(f"Copying completed")

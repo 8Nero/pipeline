@@ -21,7 +21,7 @@ def log_recording(rec, name="Recording"):
         logger.debug(f"Filepath: {filepath}")
 
 
-def load_sessions(rec_paths, probe_filter=None, load_sync=False):
+def load_sessions(rec_paths, probe_filter=None):
     """Load OpenEphys recording sessions grouped by probe. Concatenates multi-recordings within a session.
 
     Returns
@@ -50,10 +50,8 @@ def load_sessions(rec_paths, probe_filter=None, load_sync=False):
                 if probe_filter and probe_name not in probe_filter:
                     logger.info(f"  {probe_name}: SKIPPED (filtered)")
                     continue
-                
-                rec = se.read_openephys(rec_dir, stream_id=stream_id, load_sync_channel=load_sync)
-                
-                # Handle multiple recordings 
+                rec = se.read_openephys(rec_dir, stream_id=stream_id)
+                # Handle multiple recordings
                 num_segments = rec.get_num_segments()
                 if num_segments > 1:
                     logger.info(f"  {probe_name}: {num_segments} segments found, concatenating...")

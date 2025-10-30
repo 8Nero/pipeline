@@ -40,11 +40,11 @@ def validate_config(config):
     for path in config['recording_paths']:
         if not Path(path).exists():
             raise FileNotFoundError(f"Recording path not found: {path}")
-        
-    if not Path(config['local_output']).parent.exists():
+
+    if not Path(config['local_output']).exists():
         raise FileNotFoundError(f"Local output directory not found: {config['local_output']}")
 
-    if not Path(config['base_output']).parent.exists():
+    if not Path(config['base_output']).exists():
         raise FileNotFoundError(f"Base output directory not found: {config['base_output']}")
 
     return config

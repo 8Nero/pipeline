@@ -60,6 +60,7 @@ Thumbs.db
 # Ignore Copilot instructions file
 docs/
 tmp/
+CLAUDE.md
 
 # Ignore test notebook
 test.ipynb

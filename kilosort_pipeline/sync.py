@@ -172,7 +172,7 @@ def compute_global_timestamps(recording_paths, parsed_probes, fs=30000.0):
                 event = np.load(session_path / paths['events'], mmap_mode='r')
                 cont = np.load(session_path / paths['continuous'], mmap_mode='r')
 
-                if not ("ADC" in probe):
+                if "ADC" not in probe:
                     # Check first edges
                     event_state = np.load(session_path / paths['events'].replace('timestamps.npy', 'states.npy'), mmap_mode='r')
                     adc_state = np.load(session_path / adc['events'].replace('timestamps.npy', 'states.npy'), mmap_mode='r')
