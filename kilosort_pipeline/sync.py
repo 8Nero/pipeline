@@ -310,7 +310,7 @@ def run_synchronization(protocol):
     
     # Load Kilosort spike times
     spike_times_dict = {}
-    output_path = protocol['output_path']
+    output_path = protocol['local_output']
     
     kilosort_files = list(output_path.glob('*/kilosort/spike_times.npy'))
     if not kilosort_files:

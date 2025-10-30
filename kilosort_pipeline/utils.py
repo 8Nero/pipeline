@@ -67,11 +67,10 @@ def setup(config_path='config.yaml'):
 
     protocol['base_output'] = base_output / session_name
     protocol['local_output'] = local_output / session_name
-    protocol['output_path'] = protocol['local_output']
 
     # Configure logging file in session folder root
-    protocol['output_path'].mkdir(parents=True, exist_ok=True)
-    log_path = protocol['output_path'] / f'{session_name}_{timestamp}.log'
+    protocol['local_output'].mkdir(parents=True, exist_ok=True)
+    log_path = protocol['local_output'] / f'{session_name}_{timestamp}.log'
 
     logger.add(
         log_path,
