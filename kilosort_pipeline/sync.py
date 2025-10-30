@@ -40,6 +40,7 @@ def parse_sessions(sessions):
         logger.debug(f"Session {session_idx + 1}: Found {len(onebox_paths)} timestamp files in {session_path.name}")
         
         for path in onebox_paths:
+            path = Path(path).as_posix() # \\ -> /
             match = re.search(pattern, path)
             if match:
                 recording_num = int(match.group(1))
