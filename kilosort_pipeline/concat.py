@@ -147,7 +147,7 @@ def concat(probe_recordings, output_path, save_kwargs, target_fs=None):
             # Optional EEG downsampling (independent of main concat)
             if target_fs:
                 eeg_folder = probe_folder / "eeg"
-                eeg_file = eeg_folder / 'eeg_data.bin'
+                eeg_file = eeg_folder / 'eeg_data.dat'
                 
                 if eeg_file.exists():
                     logger.info(f"EEG data already exists, skipping downsampling")
