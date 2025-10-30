@@ -31,6 +31,13 @@ def run_kilosort4(probe_concat, output_path, device='cuda', custom_settings=None
             kilosort_output = probe_folder / "kilosort"
             kilosort_output.mkdir(parents=True, exist_ok=True)
 
+            # Check if Kilosort output already exists
+            spike_times_file = kilosort_output / 'spike_times.npy'
+            if spike_times_file.exists():
+                logger.info(f"Kilosort output already exists, skipping sorting")
+                logger.success(f"Skipped {probe_name}")
+                continue
+
             # Extract probe geometry
             prb = rec.get_probe()
             probe_dict = probe_to_kilosort(prb)
