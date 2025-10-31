@@ -1,5 +1,3 @@
-import glob
-import re
 import numpy as np
 import pynapple as nap
 
@@ -8,50 +6,6 @@ from collections import defaultdict
 from scipy.interpolate import make_interp_spline
 from scipy.signal import find_peaks
 from loguru import logger
-
-def parse_sessions(sessions):
-    """Parse OpenEphys folders grouped by session and recording.
-    
-    Parameters
-    ----------
-    sessions : list of str or Path
-        Paths to OpenEphys session directories
-        
-    Returns
-    -------
-    dict
-        Nested dict: {session_idx: {recording_num: {probe_name: {'events': path, 'continuous': path}}}}
-        
-    Notes
-    -----
-    - session_idx is 1-indexed (session 1, 2, 3, ...)
-    - Searches for OneBox-* folders with timestamps.npy files
-    - Extracts probe names from stream names (e.g., 'OneBox-0.ProbeA' -> 'ProbeA')
-    """
-    # Regex pattern to extract: recording number, data type (events/continuous), probe name
-    pattern = r'recording(\d+)/(events|continuous)/(OneBox-\d+\.[\w-]+)'
-    parsed = {}
-    
-    for session_idx, session_path in enumerate(sessions):
-        session_path = Path(session_path)
-        # Get all OneBox folders (events and continuous)
-        onebox_paths = glob.glob('**/OneBox**/**/timestamps.npy', root_dir=session_path, recursive=True)
-        
-        logger.debug(f"Session {session_idx + 1}: Found {len(onebox_paths)} timestamp files in {session_path.name}")
-        
-        for path in onebox_paths:
-            path = Path(path).as_posix() # \\ -> /
-            match = re.search(pattern, path)
-            if match:
-                recording_num = int(match.group(1))
-                data_type = match.group(2)                      # 'events' or 'continuous'
-                probe_name = match.group(3).split('.')[1]       # select 'ProbeA' from 'OneBox-0.ProbeA'
-                
-                # Initialize nested dicts on first access
-                session_key = session_idx + 1
-                parsed.setdefault(session_key, {}).setdefault(recording_num, {}).setdefault(probe_name, {})[data_type] = path
-    
-    return parsed
 
 
 def detect_reset(event, limit=500):
@@ -123,23 +77,22 @@ def match_chirp_edges(chirp_ts1, chirp_ts2, limit=200):
         return chirp_ts1_matched, chirp_ts2
 
 
-def compute_global_timestamps(recording_paths, parsed_probes, fs=30000.0):
+def compute_global_timestamps(timestamps, fs=30000.0):
     """Compute global timestamps for all probes across concatenated sessions.
-    
+
     Parameters
     ----------
-    recording_paths : list of Path
-        Ordered list of session directories (concatenation order)
-    parsed_probes : dict
-        Output from parse_sessions()
+    timestamps : dict
+        Output from parse_openephys_folders()['timestamps']
+        {probe_name: {'event': [path1, path2, ...], 'cont': [path1, path2, ...]}}
     fs : float, optional
         Sampling frequency in Hz (default: 30000.0)
-        
+
     Returns
     -------
     dict
-        {probe_name: [global_timestamps_session1, global_timestamps_session2, ...]}
-        
+        {probe_name: [global_timestamps_recording1, global_timestamps_recording2, ...]}
+
     Notes
     -----
     - Aligns probe events to ADC reference using chirp signal matching
@@ -148,59 +101,67 @@ def compute_global_timestamps(recording_paths, parsed_probes, fs=30000.0):
     """
     global_events = defaultdict(list)
     dt = 1 / fs
-    
+
     # Initialize last timestamp tracker for each probe
-    first_session_probes = next(iter(parsed_probes.values()))
-    first_recording_probes = next(iter(first_session_probes.values()))
-    last_ts = {probe: 0.0 for probe in first_recording_probes.keys()}
+    last_ts = {probe: 0.0 for probe in timestamps.keys()}
 
     logger.info("Computing global timestamps")
-    
-    for session_idx, session in parsed_probes.items():
-        logger.info(f"Session {session_idx}")
-        session_path = Path(recording_paths[session_idx - 1])
-        
-        for rec_idx, rec in session.items():
-            logger.info(f"  Recording {rec_idx}:")
-            adc = rec['OneBox-ADC']
-            
-            for probe in sorted(rec):
-                paths = rec[probe]
-                logger.info(f"    Probe: {probe}")
 
-                # Load probe timestamps (from TTL folder)
-                event = np.load(session_path / paths['events'], mmap_mode='r')
-                cont = np.load(session_path / paths['continuous'], mmap_mode='r')
+    # Get ADC timestamps for reference
+    adc_name = 'OneBox-ADC'
+    if adc_name not in timestamps:
+        logger.error(f"ADC stream '{adc_name}' not found in timestamps")
+        raise ValueError(f"ADC stream '{adc_name}' not found")
 
-                if "ADC" not in probe:
-                    # Check first edges
-                    event_state = np.load(session_path / paths['events'].replace('timestamps.npy', 'states.npy'), mmap_mode='r')
-                    adc_state = np.load(session_path / adc['events'].replace('timestamps.npy', 'states.npy'), mmap_mode='r')
+    adc_event_paths = timestamps[adc_name]['event']
+    adc_cont_paths = timestamps[adc_name]['cont']
 
-                    if event_state[0] != adc_state[0]:
-                        logger.info(f"      Initial states differ (probe={event_state[0]}, ADC={adc_state[0]})")
-                        logger.info("      Aligning to ADC reference...")
+    # Process each recording across all probes
+    num_recordings = len(adc_event_paths)
 
-                        # Load ADC timestamps for matching
-                        adc_events = np.load(session_path / adc['events'], mmap_mode='r')
+    for rec_idx in range(num_recordings):
+        logger.info(f"Recording {rec_idx + 1}/{num_recordings}:")
 
-                        # Match ADC and probe timestamps
-                        event, _ = match_chirp_edges(event, adc_events)
-                    else:
-                        logger.debug(f"      Initial states match (state={event_state[0]})")
-            
-                # Compute global timestamps
-                global_ts = event - cont[0] + last_ts[probe]
+        # Load ADC timestamps
+        adc_event = np.load(adc_event_paths[rec_idx], mmap_mode='r')
+        adc_cont = np.load(adc_cont_paths[rec_idx], mmap_mode='r')
 
-                logger.debug(f"      Event range: {event[0]} ... {event[-1]}")
-                logger.debug(f"      Continuous range: {cont[0]} ... {cont[-1]}")
-                logger.info(f"      Global timestamps: {global_ts[0]:.2f} ... {global_ts[-1]:.2f} s")
+        for probe in sorted(timestamps.keys()):
+            logger.info(f"  Probe: {probe}")
 
-                # Update last_ts for next session
-                last_ts[probe] += cont[-1] - cont[0] + dt
+            # Load probe timestamps
+            event = np.load(timestamps[probe]['event'][rec_idx], mmap_mode='r')
+            cont = np.load(timestamps[probe]['cont'][rec_idx], mmap_mode='r')
 
-                # Store global events
-                global_events[probe].append(global_ts)
+            if "ADC" not in probe:
+                # Check first edges
+                event_state_path = timestamps[probe]['event'][rec_idx].replace('timestamps.npy', 'states.npy')
+                adc_state_path = adc_event_paths[rec_idx].replace('timestamps.npy', 'states.npy')
+
+                event_state = np.load(event_state_path, mmap_mode='r')
+                adc_state = np.load(adc_state_path, mmap_mode='r')
+
+                if event_state[0] != adc_state[0]:
+                    logger.info(f"    Initial states differ (probe={event_state[0]}, ADC={adc_state[0]})")
+                    logger.info("    Aligning to ADC reference...")
+
+                    # Match ADC and probe timestamps
+                    event, _ = match_chirp_edges(event, adc_event)
+                else:
+                    logger.debug(f"    Initial states match (state={event_state[0]})")
+
+            # Compute global timestamps
+            global_ts = event - cont[0] + last_ts[probe]
+
+            logger.debug(f"    Event range: {event[0]} ... {event[-1]}")
+            logger.debug(f"    Continuous range: {cont[0]} ... {cont[-1]}")
+            logger.info(f"    Global timestamps: {global_ts[0]:.2f} ... {global_ts[-1]:.2f} s")
+
+            # Update last_ts for next recording
+            last_ts[probe] += cont[-1] - cont[0] + dt
+
+            # Store global events
+            global_events[probe].append(global_ts)
 
     return dict(global_events)
 
@@ -255,8 +216,11 @@ def sync_spikes_to_adc(spike_times_dict, global_events, fs=30000.0, output_path=
             logger.debug(f"  Session {session_idx}: {len(pr_spikes)} spikes in overlap region")
             
             # Linear interpolation to ADC time base
-            spl = make_interp_spline(probe_times, adc_times, k=1)
-            adc_spikes.append(spl(pr_spikes.to_numpy()))
+            probe_times = nap.Ts(t=probe_times, time_units='s')
+            adc_times = nap.Ts(t=adc_times, time_units='s')
+            
+            spl = make_interp_spline(probe_times.restrict(overlap), adc_times.restrict(overlap), k=1)
+            adc_spikes.append(spl(pr_spikes.t))
         
         # Concatenate all sessions
         synced_spikes[probe_name] = np.concatenate(adc_spikes)
@@ -273,65 +237,61 @@ def sync_spikes_to_adc(spike_times_dict, global_events, fs=30000.0, output_path=
     return synced_spikes
 
 
-def run_synchronization(protocol):
+def run_synchronization(protocol, timestamps):
     """Run full synchronization workflow after Kilosort.
-    
+
     Parameters
     ----------
     protocol : dict
         Pipeline configuration with keys:
-        - recording_paths: list of session paths
-        - output_path: Path to output directory with Kilosort results
+        - local_output: Path to output directory with Kilosort results
         - probe_filter: optional list of probes to process
-        
+    timestamps : dict
+        Output from parse_openephys_folders()['timestamps']
+        {probe_name: {'event': [...], 'cont': [...]}}
+
     Returns
     -------
     dict
         {probe_name: synced_spike_times} aligned to ADC reference
-        
+
     Notes
     -----
     Expects Kilosort output structure:
         {output_path}/{probe_name}/kilosort/spike_times.npy
-    
+
     Creates sync outputs:
         {output_path}/{probe_name}/sync/spike_times_synced.npy
     """
     logger.info("RUNNING SYNCHRONIZATION")
-    
-    # Parse OpenEphys sessions
-    parsed_probes = parse_sessions(protocol['recording_paths'])
-    
+
     # Compute global timestamps
-    global_events = compute_global_timestamps(
-        recording_paths=protocol['recording_paths'],
-        parsed_probes=parsed_probes
-    )
-    
+    global_events = compute_global_timestamps(timestamps=timestamps)
+
     # Load Kilosort spike times
     spike_times_dict = {}
     output_path = protocol['local_output']
-    
+
     kilosort_files = list(output_path.glob('*/kilosort/spike_times.npy'))
     if not kilosort_files:
         logger.error("No Kilosort output found. Run Kilosort first.")
         raise FileNotFoundError(f"No spike_times.npy files in {output_path}")
-    
+
     for spike_file in kilosort_files:
         probe_name = spike_file.parent.parent.name
-        
+
         # Filter probes if requested
         if protocol.get('probe_filter') and probe_name not in protocol['probe_filter']:
             continue
-        
+
         spike_times_dict[probe_name] = np.load(spike_file)
         logger.info(f"Loaded {len(spike_times_dict[probe_name])} spikes from {probe_name}")
-    
+
     # Synchronize to ADC
     _ = sync_spikes_to_adc(
         spike_times_dict=spike_times_dict,
         global_events=global_events,
         output_path=output_path
     )
-    
+
     logger.success("SYNCHRONIZATION COMPLETED")

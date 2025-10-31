@@ -3,9 +3,9 @@ from loguru import logger
 
 from kilosort_pipeline.sync import run_synchronization
 
-from .concat import load_sessions, concat
+from .concat import concat
 from .sorting import run_kilosort4
-from .utils import copy_to_remote
+from .utils import copy_to_remote, parse_openephys_folders
 
 
 def run_full_pipeline(protocol):
@@ -29,16 +29,19 @@ def run_full_pipeline(protocol):
         Probe name -> saved recording object
     """
     logger.info("STARTING PIPELINE")
-    
-    probe_recordings = load_sessions(
-        rec_paths=protocol['recording_paths'],
+
+    # Parse OpenEphys folders to get recordings and timestamps
+    parsed = parse_openephys_folders(
+        recording_paths=protocol['recording_paths'],
         probe_filter=protocol['probe_filter']
     )
-    
+
+    probe_recordings = parsed['segments']
+
     if not probe_recordings:
         logger.error("No recordings loaded. Pipeline aborted.")
         raise RuntimeError("No recordings loaded.")
-    
+
     probe_concat = concat(
         probe_recordings=probe_recordings,
         output_path=protocol['local_output'],
@@ -54,8 +57,8 @@ def run_full_pipeline(protocol):
         probe_concat=probe_concat,
         output_path=protocol['local_output']
     )
-    
-    run_synchronization(protocol)
+
+    run_synchronization(protocol, timestamps=parsed['timestamps'])
     
     logger.info(f"Copying to: {protocol['base_output']}")
     copy_to_remote(
