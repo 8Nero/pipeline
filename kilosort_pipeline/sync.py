@@ -256,7 +256,7 @@ def sync_spikes_to_adc(spike_times_dict, global_events, fs=30000.0, output_path=
             
             # Linear interpolation to ADC time base
             spl = make_interp_spline(probe_times, adc_times, k=1)
-            adc_spikes.append(spl(pr_spikes.to_numpy()))
+            adc_spikes.append(spl(pr_spikes.t)
         
         # Concatenate all sessions
         synced_spikes[probe_name] = np.concatenate(adc_spikes)
