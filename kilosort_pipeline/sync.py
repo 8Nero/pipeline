@@ -189,48 +189,53 @@ def sync_spikes_to_adc(spike_times_dict, global_events, fs=30000.0, output_path=
     logger.info("Synchronizing spike times to ADC reference")
     
     # Extract ADC reference timestamps
-    adc_events = global_events.pop('OneBox-ADC')
-    synced_spikes = {}
-    
+    if 'OneBox-ADC' in global_events:
+        adc_events = global_events.pop('OneBox-ADC')
+        synced_spikes = {}
+
     for probe_name, spike_times in spike_times_dict.items():
         logger.info(f"Processing {probe_name}")
-        
+
         if probe_name not in global_events:
             logger.warning(f"  No global timestamps found for {probe_name}. Skipping.")
             continue
-        
+
         # Convert spike times to seconds
         spike_times_sec = nap.Ts(t=spike_times / fs, time_units='s')
         adc_spikes = []
-        
+
         probe_events = global_events[probe_name]
         for session_idx, (probe_times, adc_times) in enumerate(zip(probe_events, adc_events), 1):
+            logger.info(f"Session {session_idx}/{len(probe_events)}")
             # Define overlapping epochs
-            pr_epoch = nap.IntervalSet(start=probe_times[0], end=probe_times[-1])
-            ad_epoch = nap.IntervalSet(start=adc_times[0], end=adc_times[-1])
-            overlap = pr_epoch.intersect(ad_epoch)
-            
+            probe_len = probe_times.size
+            adc_len = adc_times.size
+            logger.info(f"  Probe global timestamps range: {probe_times[0]}s to {probe_times[-1]}s")
+            logger.info(f"  ADC global timestamps range: {adc_times[0]}s to {adc_times[-1]}s")
+
+            if probe_len < adc_len:
+                adc_times = adc_times[:probe_len]
+            elif adc_len < probe_len:
+                logger.warning(f"  ADC timestamps shorter than probe timestamps. Truncating probe timestamps.")
+                probe_times = probe_times[:adc_len]
+
             # Restrict spikes to overlap
-            pr_spikes = spike_times_sec.restrict(overlap)
+            pr_spikes = spike_times_sec.restrict(nap.IntervalSet(probe_times[0], probe_times[-1]))
             
-            logger.debug(f"  Session {session_idx}: {len(pr_spikes)} spikes in overlap region")
+            logger.info(f"  {len(pr_spikes)} spikes in overlap region")
+            logger.info(f"  Spike times range: {pr_spikes.t[0]:.2f} ... {pr_spikes.t[-1]:.2f} s")
             
             # Linear interpolation to ADC time base
-            probe_times = nap.Ts(t=probe_times, time_units='s')
-            adc_times = nap.Ts(t=adc_times, time_units='s')
-            
-            spl = make_interp_spline(probe_times.restrict(overlap), adc_times.restrict(overlap), k=1)
+            spl = make_interp_spline(probe_times, adc_times, k=1)
             adc_spikes.append(spl(pr_spikes.t))
-        
+
         # Concatenate all sessions
         synced_spikes[probe_name] = np.concatenate(adc_spikes)
         logger.success(f"  Synced {len(synced_spikes[probe_name])} spikes for {probe_name}")
-        
+
         # Save if output path provided
         if output_path:
-            sync_dir = output_path / probe_name / "sync"
-            sync_dir.mkdir(parents=True, exist_ok=True)
-            sync_file = sync_dir / "spike_times_synced.npy"
+            sync_file = output_path / probe_name / "spike_times_synced.npy"
             np.save(sync_file, synced_spikes[probe_name])
             logger.info(f"  Saved to: {sync_file}")
     

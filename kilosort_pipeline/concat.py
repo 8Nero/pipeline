@@ -5,9 +5,12 @@ from .utils import format_file_size, log_recording
 
 def downsample_eeg(eeg_folder, rec, target_fs, chunk_duration=60):
     """Downsample recording to target_fs and save as binary."""
-    eeg_folder.mkdir(parents=True, exist_ok=True)
-    logger.info(f"Downsampling EEG to: {eeg_folder}")
+    eeg_file = eeg_folder / 'eeg_data.dat'
+    if eeg_file.exists():
+        logger.info(f"EEG data already exists, skipping downsampling")
+        return
     
+    logger.info(f"Downsampling EEG to: {eeg_folder}")
     fs = rec.get_sampling_frequency()
     decimation_factor = int(fs / target_fs)
     
@@ -58,9 +61,7 @@ def concat(probe_recordings, output_path, save_kwargs, target_fs=None):
                 # Perform concatenation across sessions
                 logger.info(f"Concatenating {len(rec_list)} session(s)...")
                 concat_rec = si.concatenate_recordings(rec_list) if len(rec_list) > 1 else rec_list[0]
-                
                 log_recording(concat_rec)
-                logger.info(f"Data type: {concat_rec.get_dtype()}")
                 logger.info(f"Sessions concatenated: {len(rec_list)}")
                 
                 concat_folder.mkdir(parents=True, exist_ok=True)
@@ -72,15 +73,12 @@ def concat(probe_recordings, output_path, save_kwargs, target_fs=None):
                 )
                 logger.success(f"Saved concatenated recording")
             
-            # Optional EEG downsampling (independent of main concat)
+            if "ADC" in probe_name:
+                continue
+
+            # EEG downsampling
             if target_fs:
-                eeg_folder = probe_folder / "eeg"
-                eeg_file = eeg_folder / 'eeg_data.dat'
-                
-                if eeg_file.exists():
-                    logger.info(f"EEG data already exists, skipping downsampling")
-                else:
-                    downsample_eeg(eeg_folder, rec=saved_rec, target_fs=target_fs)
+                downsample_eeg(probe_folder, rec=saved_rec, target_fs=target_fs)
 
             probe_concat[probe_name] = saved_rec
 

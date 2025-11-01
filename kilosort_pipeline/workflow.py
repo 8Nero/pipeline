@@ -60,10 +60,10 @@ def run_full_pipeline(protocol):
 
     run_synchronization(protocol, timestamps=parsed['timestamps'])
     
-    logger.info(f"Copying to: {protocol['base_output']}")
+    logger.info(f"Copying to: {protocol['remote_output']}")
     copy_to_remote(
         local_path=protocol['local_output'],
-        remote_path=protocol['base_output']
+        remote_path=protocol['remote_output']
     )
     logger.success(f"Copying completed")
     logger.success("PIPELINE COMPLETED SUCCESSFULLY")

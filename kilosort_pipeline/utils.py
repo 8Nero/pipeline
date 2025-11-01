@@ -39,10 +39,24 @@ def validate_config(config):
     if not config['recording_paths']:
         raise ValueError("No recording paths specified in configuration.")
     
+    # Define keywords that shouldn't appear in parent folder paths
+    # These keywords are used for stream/probe identification
+    reserved_keywords = ['ADC', 'Adc', 'ProbeA', 'ProbeB', 'ProbeC', 'ProbeD']
+    
     # Validate recording paths
     for path in config['recording_paths']:
         if not Path(path).exists():
             raise FileNotFoundError(f"Recording path not found: {path}")
+        
+        # Check parent folders for reserved keywords
+        path_obj = Path(path).resolve()
+        parent_parts = path_obj.parts
+        
+        for keyword in reserved_keywords:
+            for part in parent_parts:
+                if keyword in part:
+                    raise ValueError(
+                        f"Recording path contains reserved keyword '{keyword}' in parent folder: {path}\n")
 
     if not Path(config['local_output']).exists():
         raise FileNotFoundError(f"Local output directory not found: {config['local_output']}")
@@ -108,7 +122,8 @@ def log_recording(rec, name="Recording"):
     duration    = rec.get_total_duration()
     fs          = rec.get_sampling_frequency()
     file_size   = rec.get_total_memory_size()
-    logger.info(f"{name}:{n_channels} ch, {duration:.1f}s @ {fs/1000:.1f} kHz ({format_file_size(file_size)})")
+    dtype       = rec.get_dtype()
+    logger.info(f"{name}:{n_channels} ch, {duration:.1f}s @ {fs/1000:.1f} kHz {dtype} ({format_file_size(file_size)})")
     # Log filepath if available
     if hasattr(rec, '_kwargs') and 'folder_path' in rec._kwargs:
         filepath = rec._kwargs['folder_path']
@@ -146,42 +161,34 @@ def parse_openephys_folders(recording_paths, probe_filter=None):
         session_path = Path(rec_path).resolve()
         logger.debug(f"Session {session_idx}/{len(recording_paths)}: {session_path.name}")
 
+        ts_files = list(session_path.glob('**/timestamps.npy'))
+        ts_files = sorted(ts_files, key=lambda p: int(re.search(r'recording(\d+)', str(p)).group(1)))
         try:
             # Discover probes and ADC streams
             stream_names, stream_ids = se.get_neo_streams('openephysbinary', session_path)
 
             for stream_name, stream_id in zip(stream_names, stream_ids):
                 # "OneBox-0.ProbeA" -> "ProbeA"
-                if ".Probe" in stream_name:
-                    clean_name = stream_name.split(".")[-1]
-                elif "ADC" in stream_name:
-                    clean_name = stream_name.split(".")[-1]  # "OneBox-ADC"
-                else:
-                    continue
-
+                clean_name = stream_name.split(".")[-1]
+                
                 # Apply probe filter if specified
-                if probe_filter and clean_name not in probe_filter:
+                if probe_filter and clean_name not in probe_filter and 'ADC' not in clean_name:
                     continue
 
-                # Load recordings as OpenEphysBinaryExtractor objects
+                # # Load recordings as OpenEphysBinaryExtractor objects
                 rec = se.read_openephys(session_path, stream_id=stream_id)
                 segments[clean_name].append(rec)
 
-                # Recursively search timestamp files
-                event_ts = session_path.glob(f"**/events/{stream_name.split('#')[-1]}/TTL/timestamps.npy")
-                cont_ts = session_path.glob(f"**/continuous/{stream_name.split('#')[-1]}/timestamps.npy")
-
-                # Sort by recording number
-                rec_n = lambda p: int(re.search(r'recording(\d+)', str(p)).group(1))
-                event_ts = sorted(event_ts, key=rec_n)
-                cont_ts = sorted(cont_ts, key=rec_n)
-
-                # Extend timestamp lists
-                timestamps[clean_name]['event'].extend([str(p) for p in event_ts])
-                timestamps[clean_name]['cont'].extend([str(p) for p in cont_ts])
-
+                for ts_file in ts_files:
+                    ts_file = str(ts_file)
+                    if clean_name in ts_file:
+                        if 'events' in ts_file:
+                            timestamps[clean_name]['event'].append(ts_file)
+                        elif 'continuous' in ts_file:
+                            timestamps[clean_name]['cont'].append(ts_file)
+                
                 logger.debug(f"  {clean_name}: {rec.get_num_segments()} segment(s), "
-                           f"{len(event_ts)} event files, {len(cont_ts)} cont files")
+                             f"{len(timestamps[clean_name]['event'])} event files, {len(timestamps[clean_name]['cont'])} cont files")
 
         except Exception as e:
             logger.error(f"  Failed to parse session {session_path.name}: {e}")
