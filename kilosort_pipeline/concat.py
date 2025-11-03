@@ -35,6 +35,8 @@ def downsample_eeg(eeg_folder, rec, target_fs, chunk_duration=60):
             # logger.debug(f"Processed {end}/{total_samples} samples")
     logger.success(f"EEG data saved: {output_file}")
 
+def save_adc(adc_folder, rec, save_kwargs):
+    
 
 def concat(probe_recordings, output_path, save_kwargs, target_fs=None):
     """Concatenate recordings across sessions and save as binary. Optional EEG downsampling."""

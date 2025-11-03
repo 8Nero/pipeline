@@ -3,6 +3,7 @@ import pynapple as nap
 
 from pathlib import Path
 from collections import defaultdict
+from .utils import log_timestamps, load_events
 from scipy.interpolate import make_interp_spline
 from scipy.signal import find_peaks
 from loguru import logger
@@ -76,227 +77,152 @@ def match_chirp_edges(chirp_ts1, chirp_ts2, limit=200):
         logger.info(f"  Trimmed chirp_ts1 by {trim_size} samples to align edges")
         return chirp_ts1_matched, chirp_ts2
 
-
-def compute_global_timestamps(timestamps, fs=30000.0):
-    """Compute global timestamps for all probes across concatenated sessions.
-
-    Parameters
-    ----------
-    timestamps : dict
-        Output from parse_openephys_folders()['timestamps']
-        {probe_name: {'event': [path1, path2, ...], 'cont': [path1, path2, ...]}}
-    fs : float, optional
-        Sampling frequency in Hz (default: 30000.0)
-
-    Returns
-    -------
-    dict
-        {probe_name: [global_timestamps_recording1, global_timestamps_recording2, ...]}
-
-    Notes
-    -----
-    - Aligns probe events to ADC reference using chirp signal matching
-    - Handles temporal concatenation by tracking cumulative time offset
-    - Checks initial state matching between probe and ADC events
-    """
-    global_events = defaultdict(list)
-    dt = 1 / fs
-
-    # Initialize last timestamp tracker for each probe
-    last_ts = {probe: 0.0 for probe in timestamps.keys()}
-
-    logger.info("Computing global timestamps")
-
-    # Get ADC timestamps for reference
-    adc_name = 'OneBox-ADC'
-    if adc_name not in timestamps:
-        logger.error(f"ADC stream '{adc_name}' not found in timestamps")
-        raise ValueError(f"ADC stream '{adc_name}' not found")
-
-    adc_event_paths = timestamps[adc_name]['event']
-    adc_cont_paths = timestamps[adc_name]['cont']
-
-    # Process each recording across all probes
-    num_recordings = len(adc_event_paths)
-
-    for rec_idx in range(num_recordings):
-        logger.info(f"Recording {rec_idx + 1}/{num_recordings}:")
-
-        # Load ADC timestamps
-        adc_event = np.load(adc_event_paths[rec_idx], mmap_mode='r')
-        adc_cont = np.load(adc_cont_paths[rec_idx], mmap_mode='r')
-
-        for probe in sorted(timestamps.keys()):
-            logger.info(f"  Probe: {probe}")
-
-            # Load probe timestamps
-            event = np.load(timestamps[probe]['event'][rec_idx], mmap_mode='r')
-            cont = np.load(timestamps[probe]['cont'][rec_idx], mmap_mode='r')
-
-            if "ADC" not in probe:
-                # Check first edges
-                event_state_path = timestamps[probe]['event'][rec_idx].replace('timestamps.npy', 'states.npy')
-                adc_state_path = adc_event_paths[rec_idx].replace('timestamps.npy', 'states.npy')
-
-                event_state = np.load(event_state_path, mmap_mode='r')
-                adc_state = np.load(adc_state_path, mmap_mode='r')
-
-                if event_state[0] != adc_state[0]:
-                    logger.info(f"    Initial states differ (probe={event_state[0]}, ADC={adc_state[0]})")
-                    logger.info("    Aligning to ADC reference...")
-
-                    # Match ADC and probe timestamps
-                    event, _ = match_chirp_edges(event, adc_event)
-                else:
-                    logger.debug(f"    Initial states match (state={event_state[0]})")
-
-            # Compute global timestamps
-            global_ts = event - cont[0] + last_ts[probe]
-
-            logger.debug(f"    Event range: {event[0]} ... {event[-1]}")
-            logger.debug(f"    Continuous range: {cont[0]} ... {cont[-1]}")
-            logger.info(f"    Global timestamps: {global_ts[0]:.2f} ... {global_ts[-1]:.2f} s")
-
-            # Update last_ts for next recording
-            last_ts[probe] += cont[-1] - cont[0] + dt
-
-            # Store global events
-            global_events[probe].append(global_ts)
-
-    return dict(global_events)
-
-
-def sync_spikes_to_adc(spike_times_dict, global_events, fs=30000.0, output_path=None):
-    """Synchronize Kilosort spike times to ADC reference frame.
-    
-    Parameters
-    ----------
-    spike_times_dict : dict
-        {probe_name: spike_times_array} from Kilosort output
-    global_events : dict
-        {probe_name: [timestamps_per_session]} from compute_global_timestamps()
-    fs : float, optional
-        Sampling frequency in Hz (default: 30000.0)
-    output_path : Path, optional
-        If provided, saves synced spikes to {probe}/sync/spike_times_synced.npy
-        
-    Returns
-    -------
-    dict
-        {probe_name: synced_spike_times} aligned to ADC reference
-        
-    """
-    logger.info("Synchronizing spike times to ADC reference")
-    
-    # Extract ADC reference timestamps
-    if 'OneBox-ADC' in global_events:
-        adc_events = global_events.pop('OneBox-ADC')
-        synced_spikes = {}
-
-    for probe_name, spike_times in spike_times_dict.items():
-        logger.info(f"Processing {probe_name}")
-
-        if probe_name not in global_events:
-            logger.warning(f"  No global timestamps found for {probe_name}. Skipping.")
-            continue
-
-        # Convert spike times to seconds
-        spike_times_sec = nap.Ts(t=spike_times / fs, time_units='s')
-        adc_spikes = []
-
-        probe_events = global_events[probe_name]
-        for session_idx, (probe_times, adc_times) in enumerate(zip(probe_events, adc_events), 1):
-            logger.info(f"Session {session_idx}/{len(probe_events)}")
-            # Define overlapping epochs
-            probe_len = probe_times.size
-            adc_len = adc_times.size
-            logger.info(f"  Probe global timestamps range: {probe_times[0]}s to {probe_times[-1]}s")
-            logger.info(f"  ADC global timestamps range: {adc_times[0]}s to {adc_times[-1]}s")
-
-            if probe_len < adc_len:
-                adc_times = adc_times[:probe_len]
-            elif adc_len < probe_len:
-                logger.warning(f"  ADC timestamps shorter than probe timestamps. Truncating probe timestamps.")
-                probe_times = probe_times[:adc_len]
-
-            # Restrict spikes to overlap
-            pr_spikes = spike_times_sec.restrict(nap.IntervalSet(probe_times[0], probe_times[-1]))
-            
-            logger.info(f"  {len(pr_spikes)} spikes in overlap region")
-            logger.info(f"  Spike times range: {pr_spikes.t[0]:.2f} ... {pr_spikes.t[-1]:.2f} s")
-            
-            # Linear interpolation to ADC time base
-            spl = make_interp_spline(probe_times, adc_times, k=1)
-            adc_spikes.append(spl(pr_spikes.t))
-
-        # Concatenate all sessions
-        synced_spikes[probe_name] = np.concatenate(adc_spikes)
-        logger.success(f"  Synced {len(synced_spikes[probe_name])} spikes for {probe_name}")
-
-        # Save if output path provided
-        if output_path:
-            sync_file = output_path / probe_name / "spike_times_synced.npy"
-            np.save(sync_file, synced_spikes[probe_name])
-            logger.info(f"  Saved to: {sync_file}")
-    
-    return synced_spikes
-
-
-def run_synchronization(protocol, timestamps):
-    """Run full synchronization workflow after Kilosort.
-
-    Parameters
-    ----------
-    protocol : dict
-        Pipeline configuration with keys:
-        - local_output: Path to output directory with Kilosort results
-        - probe_filter: optional list of probes to process
-    timestamps : dict
-        Output from parse_openephys_folders()['timestamps']
-        {probe_name: {'event': [...], 'cont': [...]}}
-
-    Returns
-    -------
-    dict
-        {probe_name: synced_spike_times} aligned to ADC reference
-
-    Notes
-    -----
-    Expects Kilosort output structure:
-        {output_path}/{probe_name}/kilosort/spike_times.npy
-
-    Creates sync outputs:
-        {output_path}/{probe_name}/sync/spike_times_synced.npy
-    """
-    logger.info("RUNNING SYNCHRONIZATION")
-
-    # Compute global timestamps
-    global_events = compute_global_timestamps(timestamps=timestamps)
-
-    # Load Kilosort spike times
+def get_kilosort_spikes(output_path, probe_filter=None):
     spike_times_dict = {}
-    output_path = protocol['local_output']
 
-    kilosort_files = list(output_path.glob('*/kilosort/spike_times.npy'))
+    kilosort_files = list(Path(output_path).glob('*/kilosort/spike_times.npy'))
     if not kilosort_files:
         logger.error("No Kilosort output found. Run Kilosort first.")
         raise FileNotFoundError(f"No spike_times.npy files in {output_path}")
-
+    
     for spike_file in kilosort_files:
         probe_name = spike_file.parent.parent.name
 
         # Filter probes if requested
-        if protocol.get('probe_filter') and probe_name not in protocol['probe_filter']:
+        if probe_filter and probe_name not in probe_filter:
             continue
 
-        spike_times_dict[probe_name] = np.load(spike_file)
+        spike_times_dict[probe_name] = np.load(spike_file, mmap_mode='r')
         logger.info(f"Loaded {len(spike_times_dict[probe_name])} spikes from {probe_name}")
 
-    # Synchronize to ADC
-    _ = sync_spikes_to_adc(
-        spike_times_dict=spike_times_dict,
-        global_events=global_events,
-        output_path=output_path
-    )
+    return spike_times_dict
 
+class Timestamps:
+    def __init__(self, name, fs, t_start=0.0):
+        self.name = name
+        self.fs = fs
+        self.dt = 1 / fs
+        
+        self.sync_timestamps = []
+        self.intervals = []
+        self.t_offset = t_start
+        self.starting_states = []
+
+    def update(self, sync_ts, t_end, starting_state=None):
+        # Update synchronization timestamps
+        global_event_ts = sync_ts + self.t_offset + self.dt
+        self.sync_timestamps.append(global_event_ts)
+
+        # Update intervals
+        self.intervals.append((self.t_offset, self.t_offset + t_end))
+        
+        # Update offset for next segment
+        self.t_offset += t_end
+
+        if starting_state:
+            self.starting_states.append(starting_state)
+        
+    def __repr__(self):
+        return f"Timestamps(name='{self.name}', segments={self.num_segments()}, fs={self.fs:.1f} Hz)"
+
+def synchronize(protocol, timestamps):
+    logger.info("RUNNING SYNCHRONIZATION")
+    logger.info("Computing global ADC timestamps")
+    ADC = Timestamps(name='OneBox-ADC', fs=30300.0, t_start=0.0)
+    adc_event_paths = timestamps["OneBox-ADC"]['event']
+    adc_cont_paths = timestamps["OneBox-ADC"]['cont']
+
+    for idx, (event_path, cont_path) in enumerate(zip(adc_event_paths, adc_cont_paths)):
+        logger.debug(f"Loading ADC timestamps from: {event_path} and {cont_path}")
+        event_ts, cont_ts, states = load_events(event_path, cont_path)
+
+        # Subtract the offset of continuous recording
+        ADC.update(event_ts - cont_ts[0], cont_ts[-1] - cont_ts[0], starting_state=states[0])
+
+        ########## LOGGING #################################
+        log_timestamps(event_ts, "ADC event")
+        log_timestamps(cont_ts, "ADC cont")
+        logger.info(f"ADC interval: {ADC.intervals[-1][0]:.4f} ... {ADC.intervals[-1][1]:.4f} s")
+        log_timestamps(ADC.sync_timestamps[-1], "ADC global segment")
+        log_timestamps(np.concatenate(ADC.sync_timestamps), "ADC global")
+        logger.info("-"*60)
+
+    # Load Kilosort spike times
+    logger.info("Loading Kilosort spike times")
+    ks_spikes = get_kilosort_spikes(output_path=protocol['local_output'], probe_filter=protocol['probe_filter'])
+
+    logger.info("Interpolating spikes to ADC global timebase")
+    probe_timestamps = {k:d for k,d in timestamps.items() if k != "OneBox-ADC" and k in protocol['probe_filter']}
+    synced_spikes = {probe:[] for probe in probe_timestamps.keys()}
+
+    masks = {}
+    for probe, paths in probe_timestamps.items():
+        PRB = Timestamps(name=probe, fs=30000.0, t_start=0.0)
+        logger.info(f"Processing probe: {probe}")
+
+        logger.info(f"Extracting {probe} spikes")
+        kilosort_spikes = ks_spikes[probe] / PRB.fs
+        log_timestamps(kilosort_spikes, f"{probe} spikes")
+        total_spikes_left = kilosort_spikes.size
+        logger.info('='*60)
+
+        masks[probe] = []
+        for idx, (ev_path, cont_path) in enumerate(zip(paths['event'], paths['cont'])):
+            event_ts, cont_ts, states = load_events(ev_path, cont_path)
+
+            # Handle state mismatches
+            if states[0] != ADC.starting_states[idx]:
+                logger.warning(f"State mismatch between {probe} and ADC")
+                logger.info("Matching edges")
+                event_ts, _ = match_chirp_edges(event_ts, ADC.sync_timestamps(idx))
+
+            # Update probe timestamps, starting state is not needed here
+            PRB.update(event_ts - cont_ts[0], cont_ts[-1] - cont_ts[0])
+            probe_times = PRB.sync_timestamps[-1]
+            ########## LOGGING #################################
+            log_timestamps(event_ts, f"Event timestamps")
+            log_timestamps(cont_ts, f"Continuous timestamps")
+            log_timestamps(probe_times, f"Global segment")
+            log_timestamps(np.concatenate(PRB.sync_timestamps), f"Global")
+            ########## LOGGING #################################
+
+            adc_times = ADC.sync_timestamps[idx]
+            
+            # Extract spikes based on continuous range
+            cont_start, cont_end = PRB.intervals[idx]
+            logger.info(f"Extractinng spikes in interval: {cont_start:.5f} ... {cont_end:.5f} s")
+            mask = (kilosort_spikes > cont_start) & (kilosort_spikes <= cont_end)
+            masks[probe].append(mask) # DEBUG purpose
+            
+            probe_spikes = kilosort_spikes[mask]
+            log_timestamps(probe_spikes, f"Extracted spikes")
+            
+            # Handle length mismatches
+            min_length = min(len(probe_times), len(adc_times))
+            if min_length < len(adc_times):
+                logger.warning(f"  Truncating ADC timestamps. ADC timestamps: {len(adc_times)} -> {min_length}.")
+                adc_times = adc_times[:min_length]
+            elif min_length < len(probe_times):
+                logger.warning(f"  Truncating Probe timestamps. Probe timestamps: {len(probe_times)} -> {min_length}.")
+                probe_times = probe_times[:min_length]
+            
+            # Interpolate/extrapolate to ADC time
+            spl = make_interp_spline(x=probe_times, y=adc_times, k=1)
+            adc_spikes = spl(probe_spikes)
+            synced_spikes[probe].append(adc_spikes)
+            total_spikes_left -= adc_spikes.size
+
+            log_timestamps(adc_spikes, "ADC interpolated spikes")
+            logger.info(f"Synced spikes: {adc_spikes.size}/{kilosort_spikes.size}. Remaining spikes: {total_spikes_left}")
+            logger.info("="*60)
+        
+        # Concatenate all segments
+        synced_spikes[probe] = np.concatenate(synced_spikes[probe])
+        log_timestamps(synced_spikes[probe], f"{probe} synced spikes total")
+        # Save synced spikes
+        save_path = Path(protocol['local_output']) / probe
+        logger.info(f"Saving synced spikes to: {save_path}")
+        np.save(save_path / 'adc_spike_times.npy', synced_spikes[probe])
+        logger.success(f"Completed synchronization for probe: {probe}")
     logger.success("SYNCHRONIZATION COMPLETED")
+    

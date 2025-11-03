@@ -21,7 +21,7 @@ def run_full_pipeline(protocol):
         - target_fs: float or None for EEG downsampling
         - probe_filter: list of str or None
         - local_output: Path to local session directory
-        - base_output: Path to remote session directory
+        - remote_output: Path to remote session directory
         
     Returns
     -------

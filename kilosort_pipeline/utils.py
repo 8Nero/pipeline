@@ -2,6 +2,8 @@ import sys
 import re
 import yaml
 import shutil
+import numpy as np
+
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
@@ -26,6 +28,11 @@ def load_config(config_path):
     else:
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
 
+def load_events(events_path, cont_path):
+    event_ts  = np.load(events_path, mmap_mode='r')
+    cont_ts   = np.load(cont_path, mmap_mode='r')
+    states    = np.load(events_path.replace('timestamps.npy', 'states.npy'), mmap_mode='r')
+    return event_ts, cont_ts, states
 
 def validate_config(config):
     for k in ['recording_paths', 'remote_output', 'local_output', 'save_kwargs']:
@@ -117,7 +124,7 @@ def format_file_size(size_bytes):
 
 
 def log_recording(rec, name="Recording"):
-    """Log recording information."""
+    """Log recordings."""
     n_channels  = rec.get_num_channels()
     duration    = rec.get_total_duration()
     fs          = rec.get_sampling_frequency()
@@ -128,6 +135,12 @@ def log_recording(rec, name="Recording"):
     if hasattr(rec, '_kwargs') and 'folder_path' in rec._kwargs:
         filepath = rec._kwargs['folder_path']
         logger.debug(f"Filepath: {filepath}")
+
+def log_timestamps(timestamps, name):
+    """Log timestamps."""
+    start_ts = timestamps[0]
+    end_ts = timestamps[-1]
+    logger.info(f"{name}: {start_ts:.4f} ... {end_ts:.4f} s ({timestamps.size} samples)")
 
 def parse_openephys_folders(recording_paths, probe_filter=None):
     """Parse OpenEphys folders and return Recording objects with timestamp paths.
