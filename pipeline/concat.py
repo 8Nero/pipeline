@@ -41,21 +41,21 @@ def concat(rec_paths, probe_filter, output_path, save_kwargs, target_fs=None):
     """Load and concatenate recordings across sessions. Optional EEG downsampling."""
     logger.info("CONCATENATING RECORDINGS")
     probe_recs = {prb: [] for prb in probe_filter}
-    # Check if concatenated probe data exists
-    for probe_idx, probe in enumerate(probe_recs.keys(), 1):
-        probe_path = output_path / probe / 'concat'
-        bin_path = probe_path / 'traces_cached_seg0.raw'
-        if bin_path.exists():
-            logger.info(f"Found concatenated data at {bin_path}, skipping concatenation.")
-            saved_rec = si.load_extractor(bin_path)
-            probe_recs[probe] = saved_rec
-            log_recording(saved_rec)
-            continue
+    # # Check if concatenated probe data exists
+    # for probe_idx, probe in enumerate(probe_recs.keys(), 1):
+    #     probe_path = output_path / probe / 'concat'
+    #     bin_path = probe_path / 'traces_cached_seg0.raw'
+    #     if bin_path.exists():
+    #         logger.info(f"Found concatenated data at {bin_path}.")
+    #         logger.info(f"Skipping concatenation for {probe}.")
+    #         saved_rec = si.load_extractor(bin_path.parent)
+    #         probe_recs[probe].append(saved_rec)
+    #         log_recording(saved_rec)
+    #         continue
 
     # Load recordings for each session, group them by probe
-    for session_idx, session_path in enumerate(probe_recs, 1):
-        logger.info("Loading probes.")
-        logger.info(f"Session {session_idx}/{len(rec_paths)}: {session_path.name}")
+    for session_idx, session_path in enumerate(rec_paths, 1):
+        logger.info(f"Loading session {session_idx}/{len(rec_paths)}: {session_path}")
         
         # Discover probes and ADC streams
         stream_names, stream_ids = se.get_neo_streams('openephysbinary', session_path)
@@ -63,29 +63,39 @@ def concat(rec_paths, probe_filter, output_path, save_kwargs, target_fs=None):
             # Extract probe name (e.g., "OneBox-0.ProbeA" -> "ProbeA")
             probe = stream_name.split(".")[-1]
 
-            # Skip if: SYNC channel, not in filter, or already loaded
-            if "SYNC" in stream_name or probe not in probe_filter or probe_recs[probe]:
+            # Skip if: SYNC channel, not in filter
+            if "SYNC" in stream_name or probe not in probe_filter:
                 continue
 
             # Load recordings as OpenEphysBinaryExtractor objects
             rec = se.read_openephys(session_path, stream_id=stream_id)
-            probe_recs[probe] = rec
+            probe_recs[probe].append(rec)
         
-        logger.success("Probes loaded.")
+        logger.success("Session loaded.")
 
     probe_concat = {}
     # Concatenate, downsample, and save
     for probe_idx, (probe, recs) in enumerate(probe_recs.items(), 1):
         logger.info(f"[{probe_idx}/{len(probe_recs)}]")
 
+        # Check if concatenated data already exists
+        probe_dir = output_path / probe
+        concat_dir = probe_dir / 'concat'
+        bin_path = concat_dir / 'traces_cached_seg0.raw'
+        
+        if bin_path.exists():
+            logger.info(f"Found concatenated {probe} data at {bin_path}")
+            logger.info(f"Skipping concatenation for {probe}")
+            saved_rec = si.load(concat_dir)
+            if probe != 'OneBox-ADC':
+                probe_concat[probe] = saved_rec
+            continue
+
         logger.info(f"Concatenating {len(recs)} session(s)...")
         concat_rec = si.concatenate_recordings(recs) if len(recs) > 1 else recs[0]
         log_recording(concat_rec)
         logger.info(f"Sessions concatenated: {len(recs)}")
         
-        
-        probe_dir = output_path / probe
-        concat_dir = probe_dir / 'concat'
         concat_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"Saving to: {concat_dir}")

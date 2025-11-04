@@ -68,7 +68,7 @@ Examples:
     )
 
     # Load timestamps
-    timestamps = parse_timestamps(protocol['recording_paths'])
+    timestamps = parse_timestamps(protocol['recording_paths'], protocol['probe_filter'])
     synchronize(output_path=protocol['local_output'], probe_filter=protocol['probe_filter'], timestamps=timestamps)
 
     logger.info(f"Copying to: {protocol['remote_output']}")

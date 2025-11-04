@@ -39,7 +39,7 @@ def run_kilosort4(probe_concat, output_path, device='cuda', custom_settings=None
             # Check if Kilosort output already exists
             spike_times_file = kilosort_output / 'spike_times.npy'
             if spike_times_file.exists():
-                logger.info(f"Kilosort output already exists, skipping sorting")
+                logger.info(f"Kilosort output already exists at {spike_times_file}")
                 logger.success(f"Skipped {probe_name}")
                 continue
 

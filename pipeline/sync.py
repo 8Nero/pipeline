@@ -134,11 +134,12 @@ def synchronize(output_path, probe_filter, timestamps):
     adc_event_paths = timestamps["OneBox-ADC"]['event']
     adc_cont_paths = timestamps["OneBox-ADC"]['cont']
 
-    output_path = output_path / 'OneBox-ADC' / 'timestamps.npy'
-    if output_path.exists():
-        logger.info(f"ADC timestamps already exist at {output_path}.")
-        output_path = None
-    adc_timestamps = []
+    adc_timestamps_file = output_path / 'OneBox-ADC' / 'timestamps.npy'
+    if adc_timestamps_file.exists():
+        logger.info(f"ADC timestamps already exist at {adc_timestamps_file}.")
+        adc_timestamps = None
+    else:
+        adc_timestamps = []
     t_last = 0.0
 
     for idx, (event_path, cont_path) in enumerate(zip(adc_event_paths, adc_cont_paths)):
@@ -155,15 +156,15 @@ def synchronize(output_path, probe_filter, timestamps):
         logger.info("-"*60)
         ####################################################
         
-        if output_path:
+        if adc_timestamps is not None:
             # Accumulate timestamps
             cont_ts = cont_ts - cont_ts[0] + t_last
             t_last += cont_ts[-1]
             adc_timestamps.append(cont_ts)
 
     # Save ADC recording timestamps
-    if output_path:
-        np.save(output_path, np.concatenate(adc_timestamps))
+    if adc_timestamps is not None:
+        np.save(adc_timestamps_file, np.concatenate(adc_timestamps))
 
     # Load Kilosort spike times
     logger.info("Loading Kilosort spike times")

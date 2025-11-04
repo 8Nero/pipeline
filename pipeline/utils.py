@@ -145,6 +145,7 @@ def parse_timestamps(rec_paths, probe_filter):
     timestamps = {probe: {'event': [], 'cont': []} for probe in probe_filter}
 
     for session_idx, session_path in enumerate(rec_paths, 1):
+        session_path = Path(session_path)
         logger.debug(f"Session {session_idx}/{len(rec_paths)}: {session_path.name}") 
         # Recursively get all timestamps.npy files
         ts_files = list(session_path.glob('**/timestamps.npy'))
