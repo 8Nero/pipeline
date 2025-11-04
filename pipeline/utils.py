@@ -185,7 +185,10 @@ def copy_to_remote(local_path, remote_path, overwrite_mode='prompt'):
             if remote_file.exists():
                 if overwrite_mode == 'prompt':
                     logger.warning(f"File already exists: {relative_path}")
-                    response = input(f"Overwrite '{relative_path}'? (y/n/all/skip-all): ").strip().lower()
+                    response = input(f"Overwrite '{relative_path}'? (y/n/all/skip-all) [default: y]: ").strip().lower()
+                    
+                    if response == '':
+                        response = 'y'
                     
                     if response == 'all':
                         overwrite_mode = 'all'
