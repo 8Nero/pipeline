@@ -125,7 +125,7 @@ class Timestamps:
     def __repr__(self):
         return f"Timestamps(name='{self.name}', @ {self.fs:.1f} Hz)"
 
-def synchronize(protocol, timestamps):
+def synchronize(output_path, probe_filter, timestamps):
     logger.info("RUNNING SYNCHRONIZATION")
     logger.info("Computing global ADC timestamps")
 
@@ -134,10 +134,15 @@ def synchronize(protocol, timestamps):
     adc_event_paths = timestamps["OneBox-ADC"]['event']
     adc_cont_paths = timestamps["OneBox-ADC"]['cont']
 
-    for idx, (event_path, cont_path) in enumerate(zip(adc_event_paths, adc_cont_paths)):
-        logger.debug(f"Loading ADC timestamps from: {event_path} and {cont_path}")
-        event_ts, cont_ts, states = load_events(event_path, cont_path)
+    output_path = output_path / 'OneBox-ADC' / 'timestamps.npy'
+    if output_path.exists():
+        logger.info(f"ADC timestamps already exist at {output_path}.")
+        output_path = None
+    adc_timestamps = []
+    t_last = 0.0
 
+    for idx, (event_path, cont_path) in enumerate(zip(adc_event_paths, adc_cont_paths)):
+        event_ts, cont_ts, states = load_events(event_path, cont_path)
         # Subtract the offset of continuous recording
         ADC.update(event_ts - cont_ts[0], cont_ts[-1] - cont_ts[0], starting_state=states[0])
 
@@ -148,13 +153,24 @@ def synchronize(protocol, timestamps):
         log_timestamps(ADC.global_timestamps[-1], "ADC global segment")
         log_timestamps(np.concatenate(ADC.global_timestamps), "ADC global")
         logger.info("-"*60)
+        ####################################################
+        
+        if output_path:
+            # Accumulate timestamps
+            cont_ts = cont_ts - cont_ts[0] + t_last
+            t_last += cont_ts[-1]
+            adc_timestamps.append(cont_ts)
+
+    # Save ADC recording timestamps
+    if output_path:
+        np.save(output_path, np.concatenate(adc_timestamps))
 
     # Load Kilosort spike times
     logger.info("Loading Kilosort spike times")
-    ks_spikes = get_kilosort_spikes(output_path=protocol['local_output'], probe_filter=protocol['probe_filter'])
+    ks_spikes = get_kilosort_spikes(output_path=output_path, probe_filter=probe_filter)
 
     logger.info("Interpolating spikes to ADC global timebase")
-    probe_timestamps = {k:d for k,d in timestamps.items() if k != "OneBox-ADC" and k in protocol['probe_filter']}
+    probe_timestamps = {k:d for k,d in timestamps.items() if k != "OneBox-ADC" and k in probe_filter}
     
     for probe, paths in probe_timestamps.items():
         PRB = Timestamps(name=probe, fs=30000.0, t_start=0.0)
@@ -167,7 +183,7 @@ def synchronize(protocol, timestamps):
         total_spikes_left = kilosort_spikes.size
         logger.info('='*60)
 
-        save_dir = Path(protocol['local_output'] / probe)
+        save_dir = Path(output_path / probe)
         save_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Saving to: {save_dir}")
 
@@ -215,6 +231,7 @@ def synchronize(protocol, timestamps):
                 PRB.global_timestamps[idx] = probe_times[:min_length]
             
             adc_global_timestamps.append(adc_times)
+
             # Interpolate/extrapolate to ADC time
             spl = make_interp_spline(x=probe_times, y=adc_times, k=1)
             adc_spikes = spl(probe_spikes)
@@ -225,12 +242,16 @@ def synchronize(protocol, timestamps):
             logger.info(f"Synced spikes: {adc_spikes.size}/{kilosort_spikes.size}. Remaining spikes: {total_spikes_left}")
             logger.info("-"*60)
         
+        # Create and save timestamps map Probe Global timestamps <-> ADC Global timestamps
         probe_times = np.concatenate(PRB.global_timestamps)
         adc_times = np.concatenate(adc_global_timestamps)
         timestamps_map = np.vstack((probe_times, adc_times)).T
+
         np.save(save_dir / "timestamps_map.npy", timestamps_map)
         np.save(save_dir / "adc_spikes.npy", np.concatenate(synced_spikes))
+        
         # np.save(save_dir / "masks.npy", np.concatenate(masks))
         # np.save(save_dir / "intervals.npy", PRB.intervals)
+        
         logger.success(f"Completed synchronization for probe: {probe}")
     logger.success("SYNCHRONIZATION COMPLETED")

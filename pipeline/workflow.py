@@ -1,7 +1,7 @@
 from pathlib import Path
 from loguru import logger
 
-from kilosort_pipeline.sync import run_synchronization
+from pipeline.sync import synchronize
 
 from .concat import concat
 from .sorting import run_kilosort4
@@ -58,7 +58,7 @@ def run_full_pipeline(protocol):
         output_path=protocol['local_output']
     )
 
-    run_synchronization(protocol, timestamps=parsed['timestamps'])
+    synchronize(protocol, timestamps=parsed['timestamps'])
     
     logger.info(f"Copying to: {protocol['remote_output']}")
     copy_to_remote(

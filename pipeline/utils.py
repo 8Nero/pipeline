@@ -6,9 +6,7 @@ import numpy as np
 
 from pathlib import Path
 from datetime import datetime
-from collections import defaultdict
 from loguru import logger
-import spikeinterface.extractors as se
 
 def setup_logger():
     logger.remove()
@@ -142,93 +140,72 @@ def log_timestamps(timestamps, name):
     end_ts = timestamps[-1]
     logger.info(f"{name}: {start_ts:.4f} ... {end_ts:.4f} s ({timestamps.size} samples)")
 
-def parse_openephys_folders(recording_paths, probe_filter=None):
-    """Parse OpenEphys folders and return Recording objects with timestamp paths.
+def parse_timestamps(rec_paths, probe_filter):
+    """Recursively parse timestamps.npy files from recording paths."""
+    timestamps = {probe: {'event': [], 'cont': []} for probe in probe_filter}
 
-    Parameters
-    ----------
-    recording_paths : list of str or Path
-        Paths to OpenEphys session directories
-    probe_filter : list of str, optional
-        Filter to include only certain probe names (e.g., ['ProbeA', 'ProbeB'])
-
-    Returns
-    -------
-    dict
-        {'segments': {probe_name: [Recording1, Recording2, ...], ...},
-         'timestamps': {
-             stream_name: {
-                 'event': [path1, path2, ...],
-                 'cont': [path1, path2, ...]
-             },
-             ...
-         }
-        }
-    """
-    segments = defaultdict(list)
-    timestamps = defaultdict(lambda: {'event': [], 'cont': []})
-
-    logger.info("Parsing OpenEphys folders")
-
-    for session_idx, rec_path in enumerate(recording_paths, 1):
-        session_path = Path(rec_path).resolve()
-        logger.debug(f"Session {session_idx}/{len(recording_paths)}: {session_path.name}")
-
+    for session_idx, session_path in enumerate(rec_paths, 1):
+        logger.debug(f"Session {session_idx}/{len(rec_paths)}: {session_path.name}") 
+        # Recursively get all timestamps.npy files
         ts_files = list(session_path.glob('**/timestamps.npy'))
+        # Sort by recording number extracted from filename
         ts_files = sorted(ts_files, key=lambda p: int(re.search(r'recording(\d+)', str(p)).group(1)))
-        try:
-            # Discover probes and ADC streams
-            stream_names, stream_ids = se.get_neo_streams('openephysbinary', session_path)
+        for ts_file in ts_files:
+            ts_file = str(ts_file)
+            for probe in probe_filter:
+                if probe in ts_file:
+                    if 'events' in ts_file:
+                        timestamps[probe]['event'].append(ts_file)
+                    elif 'continuous' in ts_file:
+                        timestamps[probe]['cont'].append(ts_file)
+    return timestamps
 
-            for stream_name, stream_id in zip(stream_names, stream_ids):
-                # "OneBox-0.ProbeA" -> "ProbeA"
-                clean_name = stream_name.split(".")[-1]
-                
-                # Apply probe filter if specified
-                if probe_filter and clean_name not in probe_filter and 'ADC' not in clean_name:
-                    continue
-
-                # # Load recordings as OpenEphysBinaryExtractor objects
-                rec = se.read_openephys(session_path, stream_id=stream_id)
-                segments[clean_name].append(rec)
-
-                for ts_file in ts_files:
-                    ts_file = str(ts_file)
-                    if clean_name in ts_file:
-                        if 'events' in ts_file:
-                            timestamps[clean_name]['event'].append(ts_file)
-                        elif 'continuous' in ts_file:
-                            timestamps[clean_name]['cont'].append(ts_file)
-                
-                logger.debug(f"  {clean_name}: {rec.get_num_segments()} segment(s), "
-                             f"{len(timestamps[clean_name]['event'])} event files, {len(timestamps[clean_name]['cont'])} cont files")
-
-        except Exception as e:
-            logger.error(f"  Failed to parse session {session_path.name}: {e}")
-            logger.exception("  Full traceback:")
-            continue
-
-    logger.success(f"Parsed {len(segments)} stream(s) across {len(recording_paths)} session(s)")
-
-    return {
-        'segments': dict(segments),
-        'timestamps': dict(timestamps)
-    }
-
-
-def copy_to_remote(local_path, remote_path):
+def copy_to_remote(local_path, remote_path, overwrite_mode='prompt'):
     """Copy session directory to remote storage."""
     logger.info("COPYING TO REMOTE STORAGE")
     logger.info(f"  From: {local_path}")
     logger.info(f"  To: {remote_path}")
     
-    try:
-        remote_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(local_path, remote_path, dirs_exist_ok=True)
-        
-        local_size = sum(f.stat().st_size for f in local_path.rglob('*') if f.is_file())
-        logger.success(f"  Copied {format_file_size(local_size)} to remote")
-        
-    except Exception as e:
-        logger.error(f"Failed to copy to remote server: {e}")
-        raise
+    remote_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    copied_size = 0
+    skipped_count = 0
+    
+    if overwrite_mode == 'all':
+        logger.info("Overwrite mode: Overwriting all existing files")
+    elif overwrite_mode == 'skip-all':
+        logger.info("Overwrite mode: Skipping all existing files")
+    
+    for local_file in local_path.rglob('*'):
+        if local_file.is_file():
+            relative_path = local_file.relative_to(local_path)
+            remote_file = remote_path / relative_path
+            
+            if remote_file.exists():
+                if overwrite_mode == 'prompt':
+                    logger.warning(f"File already exists: {relative_path}")
+                    response = input(f"Overwrite '{relative_path}'? (y/n/all/skip-all): ").strip().lower()
+                    
+                    if response == 'all':
+                        overwrite_mode = 'all'
+                        logger.info("Overwriting all existing files")
+                    elif response == 'skip-all':
+                        overwrite_mode = 'skip-all'
+                        logger.info("Skipping all existing files")
+                        skipped_count += 1
+                        continue
+                    elif response != 'y':
+                        logger.info(f"Skipping: {relative_path}")
+                        skipped_count += 1
+                        continue
+                elif overwrite_mode == 'skip-all':
+                    skipped_count += 1
+                    continue
+            
+            remote_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(local_file, remote_file)
+            copied_size += local_file.stat().st_size
+    
+    logger.success(f"  Copied {format_file_size(copied_size)} to remote")
+    if skipped_count > 0:
+        logger.debug(f"  Skipped {skipped_count} file(s)")

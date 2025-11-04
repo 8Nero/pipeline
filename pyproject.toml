@@ -1,5 +1,5 @@
 [project]
-name = "kilosort-pipeline"
+name = "pipeline"
 version = "0.1.0"
 description = "Automated spike sorting pipeline for OpenEphys recordings using Kilosort4 and SpikeInterface"
 readme = "README.md"
