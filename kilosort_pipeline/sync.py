@@ -103,15 +103,15 @@ class Timestamps:
         self.fs = fs
         self.dt = 1 / fs
         
-        self.sync_timestamps = []
+        self.global_timestamps = []
         self.intervals = []
         self.t_offset = t_start
         self.starting_states = []
 
-    def update(self, sync_ts, t_end, starting_state=None):
-        # Update synchronization timestamps
-        global_event_ts = sync_ts + self.t_offset + self.dt
-        self.sync_timestamps.append(global_event_ts)
+    def update(self, local_ts, t_end, starting_state=None):
+        """ Update global timestamps with a new segment."""
+        # Update global timestamps
+        self.global_timestamps.append(local_ts + self.t_offset + self.dt)
 
         # Update intervals
         self.intervals.append((self.t_offset, self.t_offset + t_end))
@@ -123,12 +123,14 @@ class Timestamps:
             self.starting_states.append(starting_state)
         
     def __repr__(self):
-        return f"Timestamps(name='{self.name}', segments={self.num_segments()}, fs={self.fs:.1f} Hz)"
+        return f"Timestamps(name='{self.name}', @ {self.fs:.1f} Hz)"
 
 def synchronize(protocol, timestamps):
     logger.info("RUNNING SYNCHRONIZATION")
     logger.info("Computing global ADC timestamps")
-    ADC = Timestamps(name='OneBox-ADC', fs=30300.0, t_start=0.0)
+
+    # Compute ADC global timestamps first
+    ADC = Timestamps(name='OneBox-ADC', fs=30300.5, t_start=0.0)
     adc_event_paths = timestamps["OneBox-ADC"]['event']
     adc_cont_paths = timestamps["OneBox-ADC"]['cont']
 
@@ -143,8 +145,8 @@ def synchronize(protocol, timestamps):
         log_timestamps(event_ts, "ADC event")
         log_timestamps(cont_ts, "ADC cont")
         logger.info(f"ADC interval: {ADC.intervals[-1][0]:.4f} ... {ADC.intervals[-1][1]:.4f} s")
-        log_timestamps(ADC.sync_timestamps[-1], "ADC global segment")
-        log_timestamps(np.concatenate(ADC.sync_timestamps), "ADC global")
+        log_timestamps(ADC.global_timestamps[-1], "ADC global segment")
+        log_timestamps(np.concatenate(ADC.global_timestamps), "ADC global")
         logger.info("-"*60)
 
     # Load Kilosort spike times
@@ -153,20 +155,25 @@ def synchronize(protocol, timestamps):
 
     logger.info("Interpolating spikes to ADC global timebase")
     probe_timestamps = {k:d for k,d in timestamps.items() if k != "OneBox-ADC" and k in protocol['probe_filter']}
-    synced_spikes = {probe:[] for probe in probe_timestamps.keys()}
-
-    masks = {}
+    
     for probe, paths in probe_timestamps.items():
         PRB = Timestamps(name=probe, fs=30000.0, t_start=0.0)
+        adc_global_timestamps = []
         logger.info(f"Processing probe: {probe}")
 
-        logger.info(f"Extracting {probe} spikes")
+        logger.info("Extracting kilosort spikes")
         kilosort_spikes = ks_spikes[probe] / PRB.fs
         log_timestamps(kilosort_spikes, f"{probe} spikes")
         total_spikes_left = kilosort_spikes.size
         logger.info('='*60)
 
-        masks[probe] = []
+        save_dir = Path(protocol['local_output'] / probe)
+        save_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Saving to: {save_dir}")
+
+        # masks           = []
+        synced_spikes   = []
+
         for idx, (ev_path, cont_path) in enumerate(zip(paths['event'], paths['cont'])):
             event_ts, cont_ts, states = load_events(ev_path, cont_path)
 
@@ -174,25 +181,26 @@ def synchronize(protocol, timestamps):
             if states[0] != ADC.starting_states[idx]:
                 logger.warning(f"State mismatch between {probe} and ADC")
                 logger.info("Matching edges")
-                event_ts, _ = match_chirp_edges(event_ts, ADC.sync_timestamps(idx))
+                event_ts, _ = match_chirp_edges(event_ts, ADC.global_timestamps[idx])
 
             # Update probe timestamps, starting state is not needed here
             PRB.update(event_ts - cont_ts[0], cont_ts[-1] - cont_ts[0])
-            probe_times = PRB.sync_timestamps[-1]
+
+            probe_times = PRB.global_timestamps[-1]
             ########## LOGGING #################################
             log_timestamps(event_ts, f"Event timestamps")
             log_timestamps(cont_ts, f"Continuous timestamps")
             log_timestamps(probe_times, f"Global segment")
-            log_timestamps(np.concatenate(PRB.sync_timestamps), f"Global")
+            log_timestamps(np.concatenate(PRB.global_timestamps), f"Global")
             ########## LOGGING #################################
 
-            adc_times = ADC.sync_timestamps[idx]
+            adc_times = ADC.global_timestamps[idx]
             
             # Extract spikes based on continuous range
             cont_start, cont_end = PRB.intervals[idx]
-            logger.info(f"Extractinng spikes in interval: {cont_start:.5f} ... {cont_end:.5f} s")
+            logger.info(f"Extracting spikes in interval: {cont_start:.5f} ... {cont_end:.5f} s")
             mask = (kilosort_spikes > cont_start) & (kilosort_spikes <= cont_end)
-            masks[probe].append(mask) # DEBUG purpose
+            # masks.append(mask) # DEBUG purpose
             
             probe_spikes = kilosort_spikes[mask]
             log_timestamps(probe_spikes, f"Extracted spikes")
@@ -204,25 +212,25 @@ def synchronize(protocol, timestamps):
                 adc_times = adc_times[:min_length]
             elif min_length < len(probe_times):
                 logger.warning(f"  Truncating Probe timestamps. Probe timestamps: {len(probe_times)} -> {min_length}.")
-                probe_times = probe_times[:min_length]
+                PRB.global_timestamps[idx] = probe_times[:min_length]
             
+            adc_global_timestamps.append(adc_times)
             # Interpolate/extrapolate to ADC time
             spl = make_interp_spline(x=probe_times, y=adc_times, k=1)
             adc_spikes = spl(probe_spikes)
-            synced_spikes[probe].append(adc_spikes)
+            synced_spikes.append(adc_spikes)
             total_spikes_left -= adc_spikes.size
 
             log_timestamps(adc_spikes, "ADC interpolated spikes")
             logger.info(f"Synced spikes: {adc_spikes.size}/{kilosort_spikes.size}. Remaining spikes: {total_spikes_left}")
-            logger.info("="*60)
+            logger.info("-"*60)
         
-        # Concatenate all segments
-        synced_spikes[probe] = np.concatenate(synced_spikes[probe])
-        log_timestamps(synced_spikes[probe], f"{probe} synced spikes total")
-        # Save synced spikes
-        save_path = Path(protocol['local_output']) / probe
-        logger.info(f"Saving synced spikes to: {save_path}")
-        np.save(save_path / 'adc_spike_times.npy', synced_spikes[probe])
+        probe_times = np.concatenate(PRB.global_timestamps)
+        adc_times = np.concatenate(adc_global_timestamps)
+        timestamps_map = np.vstack((probe_times, adc_times)).T
+        np.save(save_dir / "timestamps_map.npy", timestamps_map)
+        np.save(save_dir / "adc_spikes.npy", np.concatenate(synced_spikes))
+        # np.save(save_dir / "masks.npy", np.concatenate(masks))
+        # np.save(save_dir / "intervals.npy", PRB.intervals)
         logger.success(f"Completed synchronization for probe: {probe}")
     logger.success("SYNCHRONIZATION COMPLETED")
-    
