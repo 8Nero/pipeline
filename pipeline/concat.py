@@ -16,7 +16,7 @@ def downsample_eeg(
     Decimate high-frequency recording to target sampling rate. No anti-aliasing filter applied.
 
     Saves to eeg_data.dat as int16 binary.
-    
+
     Example: 30kHz → 1.25kHz (decimation factor = 24)
     """
     eeg_file = eeg_folder / 'eeg_data.dat'
@@ -114,8 +114,9 @@ def concat(
             logger.info(f"Found concatenated {probe} data at {bin_path}")
             logger.info(f"Skipping concatenation for {probe}")
             saved_rec = si.load(concat_dir)
-            if probe != 'OneBox-ADC':
-                probe_concat[probe] = saved_rec
+            if probe == 'OneBox-ADC':
+                continue
+            probe_concat[probe] = saved_rec
             if target_fs:
                 downsample_eeg(probe_dir, rec=saved_rec, target_fs=target_fs)
             continue
