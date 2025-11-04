@@ -17,6 +17,8 @@ Examples:
   python -m run_pipeline --config my_config.yaml      # Custom config file
   python -m run_pipeline --probe ProbeA               # Process single probe
   python -m run_pipeline --probe ProbeA ProbeB        # Process multiple probes
+  python -m run_pipeline --overwrite prompt           # Prompt before overwriting files
+  python -m run_pipeline --overwrite skip-all         # Skip all existing files when copying to remote storage
         """
     )
     parser.add_argument(

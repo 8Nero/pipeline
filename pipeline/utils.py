@@ -7,6 +7,7 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime
 from loguru import logger
+from typing import Literal
 
 def setup_logger():
     logger.remove()
@@ -71,7 +72,12 @@ def validate_config(config):
 
     return config
 
-def setup(config_path='config.yaml'):
+def setup(config_path: str = 'config.yaml') -> dict:
+    """
+    Initialize pipeline: load config, validate paths, setup logging.
+    
+    Creates session directories and log file at {local_output}/{session_name}/.
+    """
     # Load and validate config
     setup_logger()
     protocol = validate_config(load_config(config_path))
@@ -122,7 +128,7 @@ def format_file_size(size_bytes):
 
 
 def log_recording(rec, name="Recording"):
-    """Log recordings."""
+    """Log SpikeInterface Recording objects."""
     n_channels  = rec.get_num_channels()
     duration    = rec.get_total_duration()
     fs          = rec.get_sampling_frequency()
@@ -135,13 +141,19 @@ def log_recording(rec, name="Recording"):
         logger.debug(f"Filepath: {filepath}")
 
 def log_timestamps(timestamps, name):
-    """Log timestamps."""
+    """Log timestamps basic information."""
     start_ts = timestamps[0]
     end_ts = timestamps[-1]
     logger.info(f"{name}: {start_ts:.4f} ... {end_ts:.4f} s ({timestamps.size} samples)")
 
-def parse_timestamps(rec_paths, probe_filter):
-    """Recursively parse timestamps.npy files from recording paths."""
+def parse_timestamps(rec_paths: list[str], probe_filter: list[str]) -> dict[str, dict[str, list[str]]]:
+    """
+    Extract OpenEphys timestamp file paths from multi-session recordings, grouped by probe and type (event/continuous).
+    
+    Sorts files in each session by recording number.
+    
+    Returns Nested dict: {probe: {'event': [paths...], 'cont': [paths...]}}
+    """
     timestamps = {probe: {'event': [], 'cont': []} for probe in probe_filter}
 
     for session_idx, session_path in enumerate(rec_paths, 1):
@@ -161,8 +173,23 @@ def parse_timestamps(rec_paths, probe_filter):
                         timestamps[probe]['cont'].append(ts_file)
     return timestamps
 
-def copy_to_remote(local_path, remote_path, overwrite_mode='prompt'):
-    """Copy session directory to remote storage."""
+def copy_to_remote(
+    local_path: Path, 
+    remote_path: Path, 
+    overwrite_mode: Literal['prompt', 'all', 'skip-all'] = 'prompt'
+) -> None:
+    """
+    Recursively copy session directory to remote/network storage.
+    
+    Parameters
+    ----------
+    local_path : Path
+        Source directory
+    remote_path : Path
+        Destination directory
+    overwrite_mode : {'prompt', 'all', 'skip-all'}, default='prompt'
+        File conflict resolution options
+    """
     logger.info("COPYING TO REMOTE STORAGE")
     logger.info(f"  From: {local_path}")
     logger.info(f"  To: {remote_path}")
@@ -185,11 +212,7 @@ def copy_to_remote(local_path, remote_path, overwrite_mode='prompt'):
             if remote_file.exists():
                 if overwrite_mode == 'prompt':
                     logger.warning(f"File already exists: {relative_path}")
-                    response = input(f"Overwrite '{relative_path}'? (y/n/all/skip-all) [default: y]: ").strip().lower()
-                    
-                    if response == '':
-                        response = 'y'
-                    
+                    response = input(f"Overwrite '{relative_path}'? (y/n/all/skip-all) [default: n]: ").strip().lower()
                     if response == 'all':
                         overwrite_mode = 'all'
                         logger.info("Overwriting all existing files")

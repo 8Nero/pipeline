@@ -2,11 +2,23 @@ import spikeinterface as si
 import spikeinterface.extractors as se
 from pathlib import Path
 from loguru import logger
+from typing import Optional
 
 from .utils import log_recording
 
-def downsample_eeg(eeg_folder, rec, target_fs, chunk_duration=60):
-    """Downsample recording to target_fs and save as binary."""
+def downsample_eeg(
+    eeg_folder: Path, 
+    rec: si.BaseRecording, 
+    target_fs: int, 
+    chunk_duration: int = 60
+) -> None:
+    """
+    Decimate high-frequency recording to target sampling rate. No anti-aliasing filter applied.
+
+    Saves to eeg_data.dat as int16 binary.
+    
+    Example: 30kHz → 1.25kHz (decimation factor = 24)
+    """
     eeg_file = eeg_folder / 'eeg_data.dat'
     if eeg_file.exists():
         logger.info(f"EEG data already exists, skipping downsampling")
@@ -37,22 +49,37 @@ def downsample_eeg(eeg_folder, rec, target_fs, chunk_duration=60):
             # logger.debug(f"Processed {end}/{total_samples} samples")
     logger.success(f"EEG data saved: {output_file}")
 
-def concat(rec_paths, probe_filter, output_path, save_kwargs, target_fs=None):
-    """Load and concatenate recordings across sessions. Optional EEG downsampling."""
+def concat(
+    rec_paths: list[str], 
+    probe_filter: list[str], 
+    output_path: Path, 
+    save_kwargs: dict, 
+    target_fs: Optional[int] = None
+) -> dict[str, si.BaseRecording]:
+    """
+    Load and concatenate OpenEphys recordings across multiple sessions.
+
+    Parameters
+    ----------
+    rec_paths : list[str]
+        Paths to OpenEphys session directories (containing structure.oebin)
+    probe_filter : list[str]
+        Probe names to process (e.g., ['ProbeA', 'ProbeB', 'OneBox-ADC'])
+    output_path : Path
+        Directory for saving concatenated recordings and EEG data
+    save_kwargs : dict
+        SpikeInterface save parameters (n_jobs, chunk_duration, mp_context)
+    target_fs : int, optional
+        Target sampling rate for EEG downsampling in Hz. If None, skip downsampling
+        
+    Returns
+    -------
+    dict[str, si.BaseRecording]
+        Dictionary mapping probe names to concatenated SpikeInterface recordings
+        (excludes 'OneBox-ADC')
+    """
     logger.info("CONCATENATING RECORDINGS")
     probe_recs = {prb: [] for prb in probe_filter}
-    # # Check if concatenated probe data exists
-    # for probe_idx, probe in enumerate(probe_recs.keys(), 1):
-    #     probe_path = output_path / probe / 'concat'
-    #     bin_path = probe_path / 'traces_cached_seg0.raw'
-    #     if bin_path.exists():
-    #         logger.info(f"Found concatenated data at {bin_path}.")
-    #         logger.info(f"Skipping concatenation for {probe}.")
-    #         saved_rec = si.load_extractor(bin_path.parent)
-    #         probe_recs[probe].append(saved_rec)
-    #         log_recording(saved_rec)
-    #         continue
-
     # Load recordings for each session, group them by probe
     for session_idx, session_path in enumerate(rec_paths, 1):
         logger.info(f"Loading session {session_idx}/{len(rec_paths)}: {session_path}")
@@ -89,6 +116,8 @@ def concat(rec_paths, probe_filter, output_path, save_kwargs, target_fs=None):
             saved_rec = si.load(concat_dir)
             if probe != 'OneBox-ADC':
                 probe_concat[probe] = saved_rec
+            if target_fs:
+                downsample_eeg(probe_dir, rec=saved_rec, target_fs=target_fs)
             continue
 
         logger.info(f"Concatenating {len(recs)} session(s)...")

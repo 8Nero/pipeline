@@ -3,26 +3,18 @@ import pynapple as nap
 
 from pathlib import Path
 from collections import defaultdict
+from typing import Optional
 from .utils import log_timestamps, load_events
 from scipy.interpolate import make_interp_spline
 from scipy.signal import find_peaks
 from loguru import logger
 
 
-def detect_reset(event, limit=500):
-    """Detect chirp signal reset point by finding first local minimum in timestamp differences.
+def detect_reset(event: np.ndarray, limit: int = 500) -> int:
+    """
+    Find chirp cycle reset point by detecting first local minimum in timestamp diffs.
     
-    Parameters
-    ----------
-    event : np.ndarray
-        Event timestamps (e.g., TTL pulse times)
-    limit : int, optional
-        Number of initial samples to search (default: 500)
-        
-    Returns
-    -------
-    int
-        Index of reset point (first sample after reset)
+    Returns 0 if no minimum found (chirp started at cycle beginning).
     """
     event_ts = np.diff(event[:limit])
     minima = find_peaks(-event_ts)[0]
@@ -33,51 +25,46 @@ def detect_reset(event, limit=500):
     return reset_idx
 
 
-def match_chirp_edges(chirp_ts1, chirp_ts2, limit=200):
-    """Align two chirp signals based on their reset points.
+def match_chirp_edges(
+    probe_ts: np.ndarray, 
+    adc_ts: np.ndarray, 
+    limit: int = 200
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Align probe and ADC chirp signals by trimming mismatched pre-reset edges.
     
-    Parameters
-    ----------
-    chirp_ts1, chirp_ts2 : np.ndarray
-        Chirp signal timestamps to align
-    limit : int, optional
-        Number of samples to search for reset (default: 200)
-        
-    Returns
-    -------
-    tuple of np.ndarray
-        (aligned_ts1, aligned_ts2) - Trimmed arrays with matching edge counts
-        
-    Notes
-    -----
-    Trims the signal with more edges before reset to match the other.
-    This handles cases where acquisition started mid-chirp cycle.
+    Returns (probe_ts, adc_ts) - either original or trimmed arrays.
     """
     # Detect reset points
-    reset_idx1 = detect_reset(chirp_ts1, limit=limit)
-    reset_idx2 = detect_reset(chirp_ts2, limit=limit)
+    reset_idx1 = detect_reset(probe_ts, limit=limit)
+    reset_idx2 = detect_reset(adc_ts, limit=limit)
 
     num1 = reset_idx1  # Number of edges before reset in ts1
     num2 = reset_idx2  # Number of edges before reset in ts2
 
     if num1 == num2:
         logger.debug("Chirp edges already aligned")
-        return chirp_ts1, chirp_ts2
+        return probe_ts, adc_ts
     
     if num1 < num2:
-        # Trim chirp_ts2
+        # Trim adc_ts
         trim_size = num2 - num1
-        chirp_ts2_matched = chirp_ts2[trim_size:]
-        logger.info(f"  Trimmed chirp_ts2 by {trim_size} samples to align edges")
-        return chirp_ts1, chirp_ts2_matched
+        adc_ts_matched = adc_ts[trim_size:]
+        logger.info(f"  Trimmed ADC sync timestamps by {trim_size} samples to align edges")
+        return probe_ts, adc_ts_matched
     else:
-        # Trim chirp_ts1
+        # Trim probe_ts
         trim_size = num1 - num2
-        chirp_ts1_matched = chirp_ts1[trim_size:]
-        logger.info(f"  Trimmed chirp_ts1 by {trim_size} samples to align edges")
-        return chirp_ts1_matched, chirp_ts2
+        probe_ts_matched = probe_ts[trim_size:]
+        logger.info(f"  Trimmed Probe sync timestamps by {trim_size} samples to align edges")
+        return probe_ts_matched, adc_ts
 
 def get_kilosort_spikes(output_path, probe_filter=None):
+    """
+    Load Kilosort spike times from output directory.
+    
+    Returns memmap dictionary: {probe_name: spike_times}
+    """
     spike_times_dict = {}
 
     kilosort_files = list(Path(output_path).glob('*/kilosort/spike_times.npy'))
@@ -98,7 +85,25 @@ def get_kilosort_spikes(output_path, probe_filter=None):
     return spike_times_dict
 
 class Timestamps:
-    def __init__(self, name, fs, t_start=0.0):
+    """
+    Manages global timestamps across multi-session recordings.
+    
+    Concatenates 'local' timestamps from individual sessions into a unified 'global'
+    timeline by tracking cumulative offsets.
+
+    Attributes
+    ----------
+    name : str
+        Probe identifier (e.g., 'ProbeA', 'OneBox-ADC')
+    fs : float
+        Sampling frequency in Hz
+    global_timestamps : list[np.ndarray]
+        Per-session global timestamps (local_ts + cumulative_offset)
+    intervals : list[tuple[float, float]]
+        (start, end) times for each session in global time
+    """
+    
+    def __init__(self, name: str, fs: float, t_start: float = 0.0):
         self.name = name
         self.fs = fs
         self.dt = 1 / fs
@@ -108,8 +113,8 @@ class Timestamps:
         self.t_offset = t_start
         self.starting_states = []
 
-    def update(self, local_ts, t_end, starting_state=None):
-        """ Update global timestamps with a new segment."""
+    def update(self, local_ts: np.ndarray, t_end: float, starting_state: Optional[int] = None) -> None:
+        """Add new session to global timeline."""
         # Update global timestamps
         self.global_timestamps.append(local_ts + self.t_offset + self.dt)
 
@@ -125,7 +130,34 @@ class Timestamps:
     def __repr__(self):
         return f"Timestamps(name='{self.name}', @ {self.fs:.1f} Hz)"
 
-def synchronize(output_path, probe_filter, timestamps):
+def synchronize(
+    output_path: Path, 
+    probe_filter: list[str], 
+    timestamps: dict[str, dict[str, list[str]]]
+) -> None:
+    """
+    Synchronize probe spike times to ADC global timebase using TTL chirp (frequency sweep) signals.
+    
+    1. Builds global timestamps for ADC and each probe by concatenating multi-session
+    recordings. 
+    2. Match the edges if initial states differ by tracking first reset point.
+    3. Interpolates Kilosort spike times from probe-timebase to ADC-timebase using linear splines.
+    
+    Saves per-probe outputs:
+    - timestamps_map.npy: [N x 2] array of [probe_time, adc_time] pairs (Used for interpolation)
+    - adc_spikes.npy: spike times interpolated to ADC timebase
+    - timestamps.npy: continuous ADC timestamps (saved to OneBox-ADC/ only)
+    
+    Parameters
+    ----------
+    output_path : Path
+        Directory containing probe subdirectories with kilosort/ folders
+    probe_filter : list[str]
+        Probe names to synchronize (must have corresponding Kilosort output)
+    timestamps : dict[str, dict[str, list[str]]]
+        Nested dict of {probe: {'event': [...], 'cont': [...]}} with paths to
+        timestamps.npy files from OpenEphys sessions (from parse_timestamps())
+    """
     logger.info("RUNNING SYNCHRONIZATION")
     logger.info("Computing global ADC timestamps")
 

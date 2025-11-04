@@ -5,11 +5,13 @@ os.environ['NUM_THREADS'] = '16'
 
 from pathlib import Path
 import numpy as np
+from typing import Optional
+import spikeinterface as si
 
 from kilosort import run_kilosort, DEFAULT_SETTINGS
 from loguru import logger
 
-from .concat import log_recording
+from .utils import log_recording
 
 
 def probe_to_kilosort(probe):
@@ -23,8 +25,15 @@ def probe_to_kilosort(probe):
     }
 
 
-def run_kilosort4(probe_concat, output_path, device='cuda', custom_settings=None):
-    """Run Kilosort4 spike sorting on saved recordings."""
+def run_kilosort4(
+    probe_concat: dict[str, si.BaseRecording], 
+    output_path: Path, 
+    device: str = 'cuda', 
+    custom_settings: Optional[dict] = None
+) -> None:
+    """
+    Run Kilosort4 spike sorting on concatenated probe recordings.
+    """
     logger.info("RUNNING KILOSORT4")
 
     for probe_idx, (probe_name, rec) in enumerate(probe_concat.items(), 1):
