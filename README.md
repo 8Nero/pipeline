@@ -45,11 +45,11 @@ source .venv/bin/activate
 1. **Create `config.yaml`:**
 
 ```yaml
-session_name: "session_name"      # timestamp auto-appended
-recording_paths:                  # OpenEphys session folders containing structure.oebin file
+session_name: "session_name"
+recording_paths:                    # OpenEphys session folders containing structure.oebin file
   - "/path/to/session1"
   - "/path/to/session2"
-local_output: "/local/disk"       # path to local SSD
+local_output: "/local/disk"         # path to local SSD
 # Default parameters
 remote_output: "/remote/storage"    # path to fsmresfiles
 fs: 30000.0
@@ -57,7 +57,7 @@ target_fs: 1250.0                   # EEG downsampling (Hz)
 save_kwargs:
   n_jobs: 16
   chunk_duration: '2s'
-  mp_context: 'spawn'             # for Windows; use 'fork' for macOS/Linux
+  mp_context: 'spawn'               # for Windows; use 'fork' for macOS/Linux
 ```
 
 2. **Run pipeline:**
