@@ -2,7 +2,7 @@
 from pipeline.sync import synchronize
 from pipeline.concat import concat
 from pipeline.sorting import run_kilosort4
-from pipeline.utils import copy_to_remote, parse_timestamps, setup
+from pipeline.utils import copy_to_remote, parse_timestamps, setup, validate_probe_filter
 
 import argparse
 from loguru import logger
@@ -13,10 +13,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python -m run_pipeline                              # Default: config.yaml, all probes
+  python -m run_pipeline                              # Default: config.yaml, all available probes
   python -m run_pipeline --config my_config.yaml      # Custom config file
   python -m run_pipeline --probe ProbeA               # Process single probe
   python -m run_pipeline --probe ProbeA ProbeB        # Process multiple probes
+  python -m run_pipeline --probe ProbeA ADC           # Include ADC timestamps output
   python -m run_pipeline --overwrite prompt           # Prompt before overwriting files
   python -m run_pipeline --overwrite skip-all         # Skip all existing files when copying to remote storage
         """
@@ -31,9 +32,9 @@ Examples:
         '--probe',
         type=str,
         nargs='+',
-        choices=['ProbeA', 'ProbeB', 'ProbeC', 'ProbeD'],
-        default=['OneBox-ADC'],
-        help='Probe(s) to process (e.g., --probe ProbeA ProbeB).'
+        choices=['ProbeA', 'ProbeB', 'ProbeC', 'ProbeD', 'ADC', 'adc', 'OneBox-ADC'],
+        default=None,
+        help='Probe(s) to process (e.g., --probe ProbeA ProbeB ADC). If not specified, processes all available probes.'
     )
     parser.add_argument(
         '--overwrite',
@@ -48,9 +49,8 @@ Examples:
     # Setup pipeline configuration
     protocol = setup(config_path=args.config)
     
-    # Add runtime arguments to protocol
-    protocol['probe_filter'] = args.probe
-    protocol['probe_filter'].append('OneBox-ADC')  # Always include ADC
+    # Normalize probe filter (converts ADC variants, auto-detects if None)
+    protocol['probe_filter'] = validate_probe_filter(args.probe, protocol['recording_paths'])
     logger.info(f"Probe filter: {protocol['probe_filter']}")
 
     logger.info("STARTING PIPELINE")

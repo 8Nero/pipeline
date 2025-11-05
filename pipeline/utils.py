@@ -9,6 +9,37 @@ from datetime import datetime
 from loguru import logger
 from typing import Literal
 
+def validate_probe_filter(
+    probe_filter: list[str] | None, 
+    rec_paths: list[str]
+) -> list[str]:
+    """Convert ADC variants to OneBox-ADC and auto-detect probes if probe_filter is None."""
+    if probe_filter is None:
+        # Auto-detect available probes from timestamp files
+        available_probes = set()
+        for session_path in rec_paths:
+            ts_files = list(Path(session_path).glob('**/timestamps.npy'))
+            for ts_file in ts_files:
+                ts_str = str(ts_file)
+                # Extract probe names from paths
+                for keyword in ['ProbeA', 'ProbeB', 'ProbeC', 'ProbeD', 'OneBox-ADC']:
+                    if keyword in ts_str:
+                        available_probes.add(keyword)
+        probe_filter = sorted(list(available_probes))
+        logger.info(f"Found probes: {probe_filter}")
+        return probe_filter
+    
+    # Normalize ADC variants to OneBox-ADC
+    normalized = []
+    for probe in probe_filter:
+        if probe.upper() in ['ADC', 'ONEBOX-ADC']:
+            normalized.append('OneBox-ADC')
+        else:
+            normalized.append(probe)
+    
+    # Remove duplicates
+    return list(dict.fromkeys(normalized))
+
 def setup_logger():
     logger.remove()
     logger.add(
@@ -75,7 +106,7 @@ def validate_config(config):
 def setup(config_path: str = 'config.yaml') -> dict:
     """
     Initialize pipeline: load config, validate paths, setup logging.
-    
+
     Creates session directories and log file at {local_output}/{session_name}/.
     """
     # Load and validate config
@@ -162,7 +193,10 @@ def parse_timestamps(rec_paths: list[str], probe_filter: list[str]) -> dict[str,
         # Recursively get all timestamps.npy files
         ts_files = list(session_path.glob('**/timestamps.npy'))
         # Sort by recording number extracted from filename
-        ts_files = sorted(ts_files, key=lambda p: int(re.search(r'recording(\d+)', str(p)).group(1)))
+        def extract_recording_num(p):
+            match = re.search(r'recording(\d+)', str(p))
+            return int(match.group(1)) if match else 0
+        ts_files = sorted(ts_files, key=extract_recording_num)
         for ts_file in ts_files:
             ts_file = str(ts_file)
             for probe in probe_filter:

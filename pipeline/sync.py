@@ -146,7 +146,7 @@ def synchronize(
     Saves per-probe outputs:
     - timestamps_map.npy: [N x 2] array of [probe_time, adc_time] pairs (Used for interpolation)
     - adc_spikes.npy: spike times interpolated to ADC timebase
-    - timestamps.npy: continuous ADC timestamps (saved to OneBox-ADC/ only)
+    - timestamps.npy: continuous ADC timestamps (saved if ADC in probe_filter)
     
     Parameters
     ----------
@@ -159,6 +159,9 @@ def synchronize(
         timestamps.npy files from OpenEphys sessions (from parse_timestamps())
     """
     logger.info("RUNNING SYNCHRONIZATION")
+    # Determine if we should save ADC timestamps
+    save_adc_timestamps = 'OneBox-ADC' in probe_filter
+    
     logger.info("Computing global ADC timestamps")
 
     # Compute ADC global timestamps first
@@ -171,7 +174,9 @@ def synchronize(
         logger.info(f"ADC timestamps already exist at {adc_timestamps_file}.")
         adc_timestamps = None
     else:
-        adc_timestamps = []
+        # Only compute ADC timestamps if ADC is in probe_filter
+        if save_adc_timestamps:
+            adc_timestamps = []
     t_last = 0.0
 
     for idx, (event_path, cont_path) in enumerate(zip(adc_event_paths, adc_cont_paths)):
@@ -188,15 +193,17 @@ def synchronize(
         logger.info("-"*60)
         ####################################################
         
-        if adc_timestamps is not None:
+        if save_adc_timestamps:
             # Accumulate timestamps
             cont_ts = cont_ts - cont_ts[0] + t_last
             t_last += cont_ts[-1]
             adc_timestamps.append(cont_ts)
 
-    # Save ADC recording timestamps
-    if adc_timestamps is not None:
+    # Save ADC recording timestamps if requested
+    if save_adc_timestamps:
+        adc_timestamps_file.parent.mkdir(parents=True, exist_ok=True)
         np.save(adc_timestamps_file, np.concatenate(adc_timestamps))
+        logger.success(f"Saved ADC timestamps to {adc_timestamps_file}")
 
     # Load Kilosort spike times
     logger.info("Loading Kilosort spike times")
