@@ -20,7 +20,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 *Exit and reopen your terminal after installation.*
 
-### 2. Clone and install in one step
+### 2. Clone and install
 ```bash
 git clone https://github.com/8Nero/pipeline.git
 cd pipeline
