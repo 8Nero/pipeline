@@ -50,10 +50,10 @@ recording_paths:                  # OpenEphys session folders containing structu
   - "/path/to/session1"
   - "/path/to/session2"
 local_output: "/local/disk"       # path to local SSD
-base_output: "/remote/storage"    # path to fsmresfiles
-
-# Optional parameters
-target_fs: 1250                   # EEG downsampling (Hz)
+# Default parameters
+remote_output: "/remote/storage"    # path to fsmresfiles
+fs: 30000.0
+target_fs: 1250.0                   # EEG downsampling (Hz)
 save_kwargs:
   n_jobs: 16
   chunk_duration: '2s'
@@ -72,6 +72,17 @@ python -m run_pipeline --config R:/remote_path/config.yaml
 # Process specific probe(s)
 python -m run_pipeline --probe ProbeA
 python -m run_pipeline --probe ProbeA ProbeB
+
+# Config file in fsmresfiles
+python -m run_pipeline --probe ProbeA --config_remote session1.yaml 
+
+# Concatenate ADC data (for synchronization ADC timestamps are always used)
+python -m run_pipeline --probe ProbeA ADC           
+
+# Overwrite options when copying to remote server
+python -m run_pipeline --overwrite prompt           # Prompt before overwriting files
+python -m run_pipeline --overwrite skip-all         # Skip all existing files when copying to remote storage
+python -m run_pipeline --overwrite all              # Default: Overwrite all existing files when copying to remote storage
 ```
 
 
@@ -82,15 +93,15 @@ python -m run_pipeline --probe ProbeA ProbeB
 ├── {session_name}_{timestamp}.log  # Timestamped log file
 ├── ProbeA/
 │   ├── concat/
-│   │   └── traces_cached_seg0.raw  # Concatenated binary file
-│   ├── eeg/
-│   │   └── eeg_data.bin            # Downsampled EEG (if target_fs set)
-│   ├── kilosort/                   # Kilosort4 outputs
-│   │   ├── spike_times.npy
-│   │   ├── spike_clusters.npy
-│   │   └── ...
-│   └── sync/                       # Synchronized spikes
-│       └── spike_times_synced.npy  # Spike times in ADC time scale
+│   │   ├── traces_cached_seg0.raw  # Concatenated binary file (int16)
+│   │   └── si_folder.json          # SpikeInterface metadata
+│   ├── eeg_data.dat                # Downsampled EEG (if target_fs set)
+│   ├── adc_spikes.npy              # Spike times in ADC timebase
+│   ├── timestamps_map.npy          # [N x 2] array of [probe_time, adc_time] pairs
+│   └── kilosort/                   # Kilosort4 outputs
+│       ├── spike_times.npy
+│       ├── spike_clusters.npy
+│       └── ...
 └── ProbeB/
-    ├── ...
+    └── ...
 ```
