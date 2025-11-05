@@ -146,21 +146,19 @@ def synchronize(
     Saves per-probe outputs:
     - timestamps_map.npy: [N x 2] array of [probe_time, adc_time] pairs (Used for interpolation)
     - adc_spikes.npy: spike times interpolated to ADC timebase
-    - timestamps.npy: continuous ADC timestamps (saved if ADC in probe_filter)
+    - timestamps.npy: continuous ADC timestamps (saved to OneBox-ADC/ directory)
     
     Parameters
     ----------
     output_path : Path
         Directory containing probe subdirectories with kilosort/ folders
     probe_filter : list[str]
-        Probe names to synchronize (must have corresponding Kilosort output)
+        Probe names to synchronize. Must include 'OneBox-ADC' for synchronization.
     timestamps : dict[str, dict[str, list[str]]]
         Nested dict of {probe: {'event': [...], 'cont': [...]}} with paths to
         timestamps.npy files from OpenEphys sessions (from parse_timestamps())
     """
     logger.info("RUNNING SYNCHRONIZATION")
-    # Determine if we should save ADC timestamps
-    save_adc_timestamps = 'OneBox-ADC' in probe_filter
     
     logger.info("Computing global ADC timestamps")
 
@@ -174,9 +172,8 @@ def synchronize(
         logger.info(f"ADC timestamps already exist at {adc_timestamps_file}.")
         adc_timestamps = None
     else:
-        # Only compute ADC timestamps if ADC is in probe_filter
-        if save_adc_timestamps:
-            adc_timestamps = []
+        adc_timestamps = []
+        logger.info("Will save ADC continuous timestamps")
     t_last = 0.0
 
     for idx, (event_path, cont_path) in enumerate(zip(adc_event_paths, adc_cont_paths)):
@@ -193,14 +190,14 @@ def synchronize(
         logger.info("-"*60)
         ####################################################
         
-        if save_adc_timestamps:
+        if adc_timestamps is not None:
             # Accumulate timestamps
             cont_ts = cont_ts - cont_ts[0] + t_last
             t_last += cont_ts[-1]
             adc_timestamps.append(cont_ts)
 
-    # Save ADC recording timestamps if requested
-    if save_adc_timestamps:
+    # Save ADC recording timestamps
+    if adc_timestamps is not None:
         adc_timestamps_file.parent.mkdir(parents=True, exist_ok=True)
         np.save(adc_timestamps_file, np.concatenate(adc_timestamps))
         logger.success(f"Saved ADC timestamps to {adc_timestamps_file}")

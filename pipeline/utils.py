@@ -9,6 +9,15 @@ from datetime import datetime
 from loguru import logger
 from typing import Literal
 
+def format_duration(seconds: float) -> str:
+    """Format duration in seconds to human-readable string (hours, minutes, or seconds)."""
+    if seconds >= 3600:
+        return f"{seconds/3600:.2f} h"
+    elif seconds >= 60:
+        return f"{seconds/60:.2f} min"
+    else:
+        return f"{seconds:.1f} s"
+
 def validate_probe_filter(
     probe_filter: list[str] | None, 
     rec_paths: list[str]
@@ -40,12 +49,13 @@ def validate_probe_filter(
     # Remove duplicates
     return list(dict.fromkeys(normalized))
 
-def setup_logger():
+def setup_logger(debug: bool = False):
+    """Setup console logger with INFO or DEBUG level."""
     logger.remove()
     logger.add(
         sys.stderr,
         format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
-        level="INFO",
+        level="DEBUG" if debug else "INFO",
         colorize=True
     )
 
@@ -103,14 +113,14 @@ def validate_config(config):
 
     return config
 
-def setup(config_path: str = 'config.yaml') -> dict:
+def setup(config_path: str = 'config.yaml', debug: bool = False) -> dict:
     """
     Initialize pipeline: load config, validate paths, setup logging.
 
     Creates session directories and log file at {local_output}/{session_name}/.
     """
     # Load and validate config
-    setup_logger()
+    setup_logger(debug=debug)
     protocol = validate_config(load_config(config_path))
     
     # Extract config parameters
@@ -165,7 +175,8 @@ def log_recording(rec, name="Recording"):
     fs          = rec.get_sampling_frequency()
     file_size   = rec.get_total_memory_size()
     dtype       = rec.get_dtype()
-    logger.info(f"{name}:{n_channels} ch, {duration:.1f}s @ {fs/1000:.1f} kHz {dtype} ({format_file_size(file_size)})")
+    duration_str = format_duration(duration)
+    logger.info(f"{name}: {n_channels} ch, {duration:.1f}s ({duration_str}) @ {fs/1000:.1f} kHz {dtype} ({format_file_size(file_size)})")
     # Log filepath if available
     if hasattr(rec, '_kwargs') and 'folder_path' in rec._kwargs:
         filepath = rec._kwargs['folder_path']
