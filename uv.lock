@@ -368,33 +368,6 @@ wheels = [
 ]
 
 [[package]]
-name = "kilosort-pipeline"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "kilosort" },
-    { name = "loguru" },
-    { name = "numpy" },
-    { name = "probeinterface" },
-    { name = "pynapple" },
-    { name = "pyyaml" },
-    { name = "spikeinterface", extra = ["full"] },
-    { name = "torch" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "kilosort", specifier = ">=4.0.30" },
-    { name = "loguru", specifier = ">=0.7.0" },
-    { name = "numpy", specifier = ">=2.3" },
-    { name = "probeinterface", specifier = ">=0.2.21" },
-    { name = "pynapple", specifier = ">=0.9.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "spikeinterface", extras = ["full"], specifier = ">=0.101.0" },
-    { name = "torch", specifier = ">=2.0", index = "https://download.pytorch.org/whl/cu128" },
-]
-
-[[package]]
 name = "kiwisolver"
 version = "1.4.9"
 source = { registry = "https://pypi.org/simple" }
@@ -787,6 +760,33 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/0c/b1/a7391df6adacf0a5c2cf6ac1cf1fcc1369e7d439d28f637a847f8803beb3/pillow-12.0.0-cp312-cp312-win32.whl", hash = "sha256:dd333073e0cacdc3089525c7df7d39b211bcdf31fc2824e49d01c6b6187b07d0", size = 6298769, upload-time = "2025-10-15T18:22:19.923Z" },
     { url = "https://files.pythonhosted.org/packages/a2/0b/d87733741526541c909bbf159e338dcace4f982daac6e5a8d6be225ca32d/pillow-12.0.0-cp312-cp312-win_amd64.whl", hash = "sha256:9fe611163f6303d1619bbcb653540a4d60f9e55e622d60a3108be0d5b441017a", size = 7001107, upload-time = "2025-10-15T18:22:21.644Z" },
     { url = "https://files.pythonhosted.org/packages/bc/96/aaa61ce33cc98421fb6088af2a03be4157b1e7e0e87087c888e2370a7f45/pillow-12.0.0-cp312-cp312-win_arm64.whl", hash = "sha256:7dfb439562f234f7d57b1ac6bc8fe7f838a4bd49c79230e0f6a1da93e82f1fad", size = 2436012, upload-time = "2025-10-15T18:22:23.621Z" },
+]
+
+[[package]]
+name = "pipeline"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "kilosort" },
+    { name = "loguru" },
+    { name = "numpy" },
+    { name = "probeinterface" },
+    { name = "pynapple" },
+    { name = "pyyaml" },
+    { name = "spikeinterface", extra = ["full"] },
+    { name = "torch" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "kilosort", specifier = ">=4.0.30" },
+    { name = "loguru", specifier = ">=0.7.0" },
+    { name = "numpy", specifier = ">=2.3" },
+    { name = "probeinterface", specifier = ">=0.2.21" },
+    { name = "pynapple", specifier = ">=0.9.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "spikeinterface", extras = ["full"], specifier = ">=0.101.0" },
+    { name = "torch", specifier = ">=2.0", index = "https://download.pytorch.org/whl/cu128" },
 ]
 
 [[package]]

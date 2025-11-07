@@ -5,49 +5,7 @@ from loguru import logger
 from typing import Optional
 
 from .utils import log_recording
-
-def downsample_eeg(
-    eeg_folder: Path, 
-    rec: si.BaseRecording, 
-    target_fs: int, 
-    chunk_duration: int = 60
-) -> None:
-    """
-    Decimate high-frequency recording to target sampling rate. No anti-aliasing filter applied.
-
-    Saves to eeg_data.dat as int16 binary.
-
-    Example: 30kHz → 1.25kHz (decimation factor = 24)
-    """
-    eeg_file = eeg_folder / 'eeg_data.dat'
-    if eeg_file.exists():
-        logger.info(f"EEG data already exists, skipping downsampling")
-        return
-    
-    logger.info(f"Downsampling EEG to: {eeg_folder}")
-    fs = rec.get_sampling_frequency()
-    decimation_factor = int(fs / target_fs)
-    
-    logger.info(f"Decimation factor: {decimation_factor}")
-    logger.info(f"Output rate: {fs/decimation_factor:.2f} Hz")
-
-    chunk_samples = int(chunk_duration * fs)
-    total_samples = rec.get_num_frames()
-    output_file = eeg_folder / 'eeg_data.dat'
-    
-    with open(output_file, 'wb') as f:
-        start = 0
-        while start < total_samples:
-            end = min(start + chunk_samples, total_samples)
-            chunk_data = rec.get_traces(start_frame=start, end_frame=end)
-            
-            # Pick every Nth sample
-            decimated = chunk_data[::decimation_factor, :].astype('int16')
-            decimated.tofile(f)
-            
-            start = end
-            # logger.debug(f"Processed {end}/{total_samples} samples")
-    logger.success(f"EEG data saved: {output_file}")
+from .decimation import downsample_eeg
 
 def concat(
     rec_paths: list[str], 
