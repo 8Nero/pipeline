@@ -285,8 +285,8 @@ def synchronize(
             if cont_end_aligned < cont_end:
                 logger.info(f"Adjusting end boundary from {cont_end:.5f} to {cont_end_aligned:.5f} due to alignment")
                 # Re-filter spikes to exclude those beyond the aligned end time
-                aligned_mask = (probe_spikes >= cont_start_aligned) & (probe_spikes <= cont_end_aligned)
-                probe_spikes = probe_spikes[aligned_mask]
+                final_spike_mask = (probe_spikes >= cont_start_aligned) & (probe_spikes <= cont_end_aligned)
+                probe_spikes = probe_spikes[final_spike_mask]
                 log_timestamps(probe_spikes, f"Re-filtered spikes")
             
             # Store aligned timestamps for output
