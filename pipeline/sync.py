@@ -71,11 +71,14 @@ def get_kilosort_spikes(output_path, probe_filter=None):
         logger.error("No Kilosort output found. Run Kilosort first.")
         raise FileNotFoundError(f"No spike_times.npy files in {output_path}")
     
+    # Convert to set for O(1) lookup
+    probe_filter_set = set(probe_filter) if probe_filter else None
+    
     for spike_file in kilosort_files:
         probe_name = spike_file.parent.parent.name
 
         # Filter probes if requested
-        if probe_filter and probe_name not in probe_filter:
+        if probe_filter_set and probe_name not in probe_filter_set:
             continue
 
         spike_times_dict[probe_name] = np.load(spike_file, mmap_mode='r')
@@ -221,7 +224,7 @@ def synchronize(
         total_spikes_left = kilosort_spikes.size
         logger.info('='*60)
 
-        save_dir = Path(output_path / probe)
+        save_dir = output_path / probe
         save_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Saving to: {save_dir}")
 

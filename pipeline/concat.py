@@ -38,6 +38,8 @@ def concat(
     """
     logger.info("CONCATENATING RECORDINGS")
     probe_recs = {prb: [] for prb in probe_filter}
+    probe_filter_set = set(probe_filter)  # Convert to set for faster lookup
+    
     # Load recordings for each session, group them by probe
     for session_idx, session_path in enumerate(rec_paths, 1):
         logger.info(f"Loading session {session_idx}/{len(rec_paths)}: {session_path}")
@@ -45,11 +47,15 @@ def concat(
         # Discover probes and ADC streams
         stream_names, stream_ids = se.get_neo_streams('openephysbinary', session_path)
         for stream_name, stream_id in zip(stream_names, stream_ids):
+            # Skip SYNC channel early
+            if "SYNC" in stream_name:
+                continue
+            
             # Extract probe name (e.g., "OneBox-0.ProbeA" -> "ProbeA")
             probe = stream_name.split(".")[-1]
 
-            # Skip if: SYNC channel, not in filter
-            if "SYNC" in stream_name or probe not in probe_filter:
+            # Skip if not in filter
+            if probe not in probe_filter_set:
                 continue
 
             # Load recordings as OpenEphysBinaryExtractor objects
