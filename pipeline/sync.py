@@ -254,10 +254,12 @@ def synchronize(
             probe_times_aligned = probe_times[idx_probe:]
             adc_times_aligned = adc_times[idx_adc:]
             
-            # Extract spikes based on continuous range
-            cont_start, cont_end = PRB.intervals[idx]
-            logger.info(f"Extracting spikes in interval: {cont_start:.5f} ... {cont_end:.5f} s")
-            mask = (kilosort_spikes > cont_start) & (kilosort_spikes <= cont_end)
+            # Extract spikes based on aligned start time
+            # Use the first aligned timestamp as the start, and continuous end as the end
+            cont_start_aligned = probe_times_aligned[0] if len(probe_times_aligned) > 0 else PRB.intervals[idx][0]
+            cont_end = PRB.intervals[idx][1]
+            logger.info(f"Extracting spikes in aligned interval: {cont_start_aligned:.5f} ... {cont_end:.5f} s")
+            mask = (kilosort_spikes >= cont_start_aligned) & (kilosort_spikes <= cont_end)
             # masks.append(mask) # DEBUG purpose
             
             probe_spikes = kilosort_spikes[mask]
@@ -272,7 +274,16 @@ def synchronize(
                 logger.warning(f"  Truncating aligned Probe timestamps. Probe timestamps: {len(probe_times_aligned)} -> {min_length}.")
                 probe_times_aligned = probe_times_aligned[:min_length]
             
-            # Update stored timestamps with aligned versions
+            # Adjust end boundary for spike extraction after truncation
+            cont_end_aligned = probe_times_aligned[-1] if len(probe_times_aligned) > 0 else cont_end
+            if cont_end_aligned < cont_end:
+                logger.info(f"Adjusting end boundary from {cont_end:.5f} to {cont_end_aligned:.5f} due to alignment")
+                # Re-filter spikes to exclude those beyond the aligned end time
+                mask = (probe_spikes >= cont_start_aligned) & (probe_spikes <= cont_end_aligned)
+                probe_spikes = probe_spikes[mask]
+                log_timestamps(probe_spikes, f"Re-filtered spikes")
+            
+            # Store aligned timestamps for output
             PRB.global_timestamps[idx] = probe_times_aligned
             adc_global_timestamps.append(adc_times_aligned)
 
