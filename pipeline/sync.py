@@ -230,12 +230,6 @@ def synchronize(
         for idx, (ev_path, cont_path) in enumerate(zip(paths['event'], paths['cont'])):
             event_ts, cont_ts, states = load_events(ev_path, cont_path)
 
-            # Handle state mismatches
-            if states[0] != ADC.starting_states[idx]:
-                logger.warning(f"State mismatch between {probe} and ADC")
-                logger.info("Matching edges")
-                event_ts, _ = match_chirp_edges(event_ts, ADC.global_timestamps[idx])
-
             # Update probe timestamps, starting state is not needed here
             PRB.update(event_ts - cont_ts[0], cont_ts[-1] - cont_ts[0])
 
@@ -249,6 +243,17 @@ def synchronize(
 
             adc_times = ADC.global_timestamps[idx]
             
+            # Align both arrays using reset detection
+            # Find reset indices for both probe and ADC to ensure same physical event at index 0
+            idx_probe = detect_reset(probe_times)
+            idx_adc = detect_reset(adc_times)
+            
+            logger.info(f"Detected reset indices - Probe: {idx_probe}, ADC: {idx_adc}")
+            
+            # Slice both arrays from their respective reset indices
+            probe_times_aligned = probe_times[idx_probe:]
+            adc_times_aligned = adc_times[idx_adc:]
+            
             # Extract spikes based on continuous range
             cont_start, cont_end = PRB.intervals[idx]
             logger.info(f"Extracting spikes in interval: {cont_start:.5f} ... {cont_end:.5f} s")
@@ -258,19 +263,21 @@ def synchronize(
             probe_spikes = kilosort_spikes[mask]
             log_timestamps(probe_spikes, f"Extracted spikes")
             
-            # Handle length mismatches
-            min_length = min(len(probe_times), len(adc_times))
-            if min_length < len(adc_times):
-                logger.warning(f"  Truncating ADC timestamps. ADC timestamps: {len(adc_times)} -> {min_length}.")
-                adc_times = adc_times[:min_length]
-            elif min_length < len(probe_times):
-                logger.warning(f"  Truncating Probe timestamps. Probe timestamps: {len(probe_times)} -> {min_length}.")
-                PRB.global_timestamps[idx] = probe_times[:min_length]
+            # Truncate aligned arrays to minimum common length
+            min_length = min(len(probe_times_aligned), len(adc_times_aligned))
+            if min_length < len(adc_times_aligned):
+                logger.warning(f"  Truncating aligned ADC timestamps. ADC timestamps: {len(adc_times_aligned)} -> {min_length}.")
+                adc_times_aligned = adc_times_aligned[:min_length]
+            elif min_length < len(probe_times_aligned):
+                logger.warning(f"  Truncating aligned Probe timestamps. Probe timestamps: {len(probe_times_aligned)} -> {min_length}.")
+                probe_times_aligned = probe_times_aligned[:min_length]
             
-            adc_global_timestamps.append(adc_times)
+            # Update stored timestamps with aligned versions
+            PRB.global_timestamps[idx] = probe_times_aligned
+            adc_global_timestamps.append(adc_times_aligned)
 
-            # Interpolate/extrapolate to ADC time
-            spl = make_interp_spline(x=probe_times, y=adc_times, k=1)
+            # Interpolate/extrapolate to ADC time using aligned arrays
+            spl = make_interp_spline(x=probe_times_aligned, y=adc_times_aligned, k=1)
             adc_spikes = spl(probe_spikes)
             synced_spikes.append(adc_spikes)
             total_spikes_left -= adc_spikes.size
