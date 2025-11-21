@@ -31,7 +31,7 @@ def validate_probe_filter(
         available_probes = set()
         probe_keywords = {'ProbeA', 'ProbeB', 'ProbeC', 'ProbeD', 'OneBox-ADC'}
         for session_path in rec_paths:
-            ts_files = Path(session_path).glob('**/timestamps.npy')
+            ts_files = list(Path(session_path).glob('**/timestamps.npy'))
             for ts_file in ts_files:
                 ts_str = str(ts_file)
                 # Extract probe names from paths - exit early when found
@@ -203,8 +203,6 @@ def parse_timestamps(rec_paths: list[str], probe_filter: list[str]) -> dict[str,
     Returns Nested dict: {probe: {'event': [paths...], 'cont': [paths...]}}
     """
     timestamps = {probe: {'event': [], 'cont': []} for probe in probe_filter}
-    # Pre-compile string patterns for faster matching
-    probe_filter_set = set(probe_filter)
 
     for session_idx, session_path in enumerate(rec_paths, 1):
         session_path = Path(session_path)
@@ -224,8 +222,8 @@ def parse_timestamps(rec_paths: list[str], probe_filter: list[str]) -> dict[str,
             if not (is_event or is_cont):
                 continue
             
-            # Match probe and add to appropriate list
-            for probe in probe_filter_set:
+            # Match probe and add to appropriate list (use set for fast lookup check)
+            for probe in probe_filter:
                 if probe in ts_file_str:
                     if is_event:
                         timestamps[probe]['event'].append(ts_file_str)
