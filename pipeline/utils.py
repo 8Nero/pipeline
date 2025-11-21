@@ -12,6 +12,9 @@ from typing import Literal
 # Pre-compile regex pattern for better performance
 _RECORDING_NUM_PATTERN = re.compile(r'recording(\d+)')
 
+# Known probe identifiers in OpenEphys recordings
+_PROBE_KEYWORDS = {'ProbeA', 'ProbeB', 'ProbeC', 'ProbeD', 'OneBox-ADC'}
+
 def format_duration(seconds: float) -> str:
     """Format duration in seconds to human-readable string (hours, minutes, or seconds)."""
     if seconds >= 3600:
@@ -29,13 +32,12 @@ def validate_probe_filter(
     if probe_filter is None:
         # Auto-detect available probes from timestamp files
         available_probes = set()
-        probe_keywords = {'ProbeA', 'ProbeB', 'ProbeC', 'ProbeD', 'OneBox-ADC'}
         for session_path in rec_paths:
             ts_files = list(Path(session_path).glob('**/timestamps.npy'))
             for ts_file in ts_files:
                 ts_str = str(ts_file)
                 # Extract probe names from paths - exit early when found
-                for keyword in probe_keywords:
+                for keyword in _PROBE_KEYWORDS:
                     if keyword in ts_str:
                         available_probes.add(keyword)
                         break  # Each file typically only matches one probe
