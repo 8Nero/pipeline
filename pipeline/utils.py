@@ -9,6 +9,9 @@ from datetime import datetime
 from loguru import logger
 from typing import Literal
 
+# Pre-compile regex pattern for better performance
+_RECORDING_NUM_PATTERN = re.compile(r'recording(\d+)')
+
 def format_duration(seconds: float) -> str:
     """Format duration in seconds to human-readable string (hours, minutes, or seconds)."""
     if seconds >= 3600:
@@ -26,28 +29,31 @@ def validate_probe_filter(
     if probe_filter is None:
         # Auto-detect available probes from timestamp files
         available_probes = set()
+        probe_keywords = {'ProbeA', 'ProbeB', 'ProbeC', 'ProbeD', 'OneBox-ADC'}
         for session_path in rec_paths:
-            ts_files = list(Path(session_path).glob('**/timestamps.npy'))
+            ts_files = Path(session_path).glob('**/timestamps.npy')
             for ts_file in ts_files:
                 ts_str = str(ts_file)
-                # Extract probe names from paths
-                for keyword in ['ProbeA', 'ProbeB', 'ProbeC', 'ProbeD', 'OneBox-ADC']:
+                # Extract probe names from paths - exit early when found
+                for keyword in probe_keywords:
                     if keyword in ts_str:
                         available_probes.add(keyword)
-        probe_filter = sorted(list(available_probes))
+                        break  # Each file typically only matches one probe
+        probe_filter = sorted(available_probes)
         logger.info(f"Found probes: {probe_filter}")
         return probe_filter
     
-    # Normalize ADC variants to OneBox-ADC
+    # Normalize ADC variants to OneBox-ADC and remove duplicates in one pass
+    seen = set()
     normalized = []
     for probe in probe_filter:
-        if probe.upper() in ['ADC', 'ONEBOX-ADC']:
-            normalized.append('OneBox-ADC')
-        else:
-            normalized.append(probe)
+        probe_upper = probe.upper()
+        normalized_probe = 'OneBox-ADC' if probe_upper in ('ADC', 'ONEBOX-ADC') else probe
+        if normalized_probe not in seen:
+            seen.add(normalized_probe)
+            normalized.append(normalized_probe)
     
-    # Remove duplicates
-    return list(dict.fromkeys(normalized))
+    return normalized
 
 def setup_logger(debug: bool = False):
     """Setup console logger with INFO or DEBUG level."""
@@ -197,25 +203,35 @@ def parse_timestamps(rec_paths: list[str], probe_filter: list[str]) -> dict[str,
     Returns Nested dict: {probe: {'event': [paths...], 'cont': [paths...]}}
     """
     timestamps = {probe: {'event': [], 'cont': []} for probe in probe_filter}
+    # Pre-compile string patterns for faster matching
+    probe_filter_set = set(probe_filter)
 
     for session_idx, session_path in enumerate(rec_paths, 1):
         session_path = Path(session_path)
         logger.debug(f"Session {session_idx}/{len(rec_paths)}: {session_path.name}") 
         # Recursively get all timestamps.npy files
         ts_files = list(session_path.glob('**/timestamps.npy'))
-        # Sort by recording number extracted from filename
+        # Sort by recording number extracted from filename using pre-compiled pattern
         def extract_recording_num(p):
-            match = re.search(r'recording(\d+)', str(p))
+            match = _RECORDING_NUM_PATTERN.search(str(p))
             return int(match.group(1)) if match else 0
         ts_files = sorted(ts_files, key=extract_recording_num)
         for ts_file in ts_files:
-            ts_file = str(ts_file)
-            for probe in probe_filter:
-                if probe in ts_file:
-                    if 'events' in ts_file:
-                        timestamps[probe]['event'].append(ts_file)
-                    elif 'continuous' in ts_file:
-                        timestamps[probe]['cont'].append(ts_file)
+            ts_file_str = str(ts_file)
+            # Check event/continuous type once
+            is_event = 'events' in ts_file_str
+            is_cont = 'continuous' in ts_file_str
+            if not (is_event or is_cont):
+                continue
+            
+            # Match probe and add to appropriate list
+            for probe in probe_filter_set:
+                if probe in ts_file_str:
+                    if is_event:
+                        timestamps[probe]['event'].append(ts_file_str)
+                    elif is_cont:
+                        timestamps[probe]['cont'].append(ts_file_str)
+                    break  # Each file only belongs to one probe
     return timestamps
 
 def copy_to_remote(
@@ -249,34 +265,36 @@ def copy_to_remote(
     elif overwrite_mode == 'skip-all':
         logger.info("Overwrite mode: Skipping all existing files")
     
-    for local_file in local_path.rglob('*'):
-        if local_file.is_file():
-            relative_path = local_file.relative_to(local_path)
-            remote_file = remote_path / relative_path
-            
-            if remote_file.exists():
-                if overwrite_mode == 'prompt':
-                    logger.warning(f"File already exists: {relative_path}")
-                    response = input(f"Overwrite '{relative_path}'? (y/n/all/skip-all) [default: n]: ").strip().lower()
-                    if response == 'all':
-                        overwrite_mode = 'all'
-                        logger.info("Overwriting all existing files")
-                    elif response == 'skip-all':
-                        overwrite_mode = 'skip-all'
-                        logger.info("Skipping all existing files")
-                        skipped_count += 1
-                        continue
-                    elif response != 'y':
-                        logger.info(f"Skipping: {relative_path}")
-                        skipped_count += 1
-                        continue
-                elif overwrite_mode == 'skip-all':
+    # Pre-collect all files to copy for better performance
+    files_to_process = [f for f in local_path.rglob('*') if f.is_file()]
+    
+    for local_file in files_to_process:
+        relative_path = local_file.relative_to(local_path)
+        remote_file = remote_path / relative_path
+        
+        if remote_file.exists():
+            if overwrite_mode == 'prompt':
+                logger.warning(f"File already exists: {relative_path}")
+                response = input(f"Overwrite '{relative_path}'? (y/n/all/skip-all) [default: n]: ").strip().lower()
+                if response == 'all':
+                    overwrite_mode = 'all'
+                    logger.info("Overwriting all existing files")
+                elif response == 'skip-all':
+                    overwrite_mode = 'skip-all'
+                    logger.info("Skipping all existing files")
                     skipped_count += 1
                     continue
-            
-            remote_file.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(local_file, remote_file)
-            copied_size += local_file.stat().st_size
+                elif response != 'y':
+                    logger.info(f"Skipping: {relative_path}")
+                    skipped_count += 1
+                    continue
+            elif overwrite_mode == 'skip-all':
+                skipped_count += 1
+                continue
+        
+        remote_file.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(local_file, remote_file)
+        copied_size += local_file.stat().st_size
     
     logger.success(f"  Copied {format_file_size(copied_size)} to remote")
     if skipped_count > 0:

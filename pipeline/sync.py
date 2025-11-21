@@ -5,7 +5,6 @@ from pathlib import Path
 from collections import defaultdict
 from typing import Optional
 from .utils import log_timestamps, load_events
-from scipy.interpolate import make_interp_spline
 from scipy.signal import find_peaks
 from loguru import logger
 
@@ -186,7 +185,9 @@ def synchronize(
         log_timestamps(cont_ts, "ADC cont")
         logger.info(f"ADC interval: {ADC.intervals[-1][0]:.4f} ... {ADC.intervals[-1][1]:.4f} s")
         log_timestamps(ADC.global_timestamps[-1], "ADC global segment")
-        log_timestamps(np.concatenate(ADC.global_timestamps), "ADC global")
+        # Only log concatenated timestamps on last iteration to avoid repeated concatenation overhead
+        if idx == len(adc_event_paths) - 1:
+            log_timestamps(np.concatenate(ADC.global_timestamps), "ADC global")
         logger.info("-"*60)
         ####################################################
         
@@ -244,7 +245,9 @@ def synchronize(
             log_timestamps(event_ts, f"Event timestamps")
             log_timestamps(cont_ts, f"Continuous timestamps")
             log_timestamps(probe_times, f"Global segment")
-            log_timestamps(np.concatenate(PRB.global_timestamps), f"Global")
+            # Only log concatenated timestamps on last iteration to avoid repeated concatenation overhead
+            if idx == len(paths['event']) - 1:
+                log_timestamps(np.concatenate(PRB.global_timestamps), f"Global")
             ########## LOGGING #################################
 
             adc_times = ADC.global_timestamps[idx]
@@ -269,9 +272,8 @@ def synchronize(
             
             adc_global_timestamps.append(adc_times)
 
-            # Interpolate/extrapolate to ADC time
-            spl = make_interp_spline(x=probe_times, y=adc_times, k=1)
-            adc_spikes = spl(probe_spikes)
+            # Interpolate to ADC time (linear interpolation is faster than spline with k=1)
+            adc_spikes = np.interp(probe_spikes, probe_times, adc_times)
             synced_spikes.append(adc_spikes)
             total_spikes_left -= adc_spikes.size
 
