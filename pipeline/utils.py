@@ -1,44 +1,135 @@
+"""
+Utility functions for pipeline configuration and file handling.
+"""
 import sys
 import re
 import yaml
 import shutil
 import numpy as np
-
 from pathlib import Path
 from datetime import datetime
 from loguru import logger
 from typing import Literal
 
-def format_duration(seconds: float) -> str:
-    """Format duration in seconds to human-readable string (hours, minutes, or seconds)."""
-    if seconds >= 3600:
-        return f"{seconds/3600:.2f} h"
-    elif seconds >= 60:
-        return f"{seconds/60:.2f} min"
-    else:
-        return f"{seconds:.1f} s"
 
-def validate_probe_filter(
-    probe_filter: list[str] | None, 
-    rec_paths: list[str]
-) -> list[str]:
-    """Convert ADC variants to OneBox-ADC and auto-detect probes if probe_filter is None."""
+def format_duration(seconds: float) -> str:
+    if seconds >= 3600:
+        return f"{seconds/3600:.2f}h"
+    elif seconds >= 60:
+        return f"{seconds/60:.2f}min"
+    return f"{seconds:.1f}s"
+
+
+def format_size(size_bytes: float) -> str:
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if size_bytes < 1024.0:
+            return f"{size_bytes:.2f}{unit}"
+        size_bytes /= 1024.0
+    return f"{size_bytes:.2f}PB"
+
+
+def log_recording(rec, name: str = "Recording") -> None:
+    """Log recording: channels, duration, sampling rate, size."""
+    n_ch = rec.get_num_channels()
+    duration = rec.get_total_duration()
+    fs = rec.get_sampling_frequency()
+    size = rec.get_total_memory_size()
+    logger.info(f"  {name}: {n_ch}ch, {format_duration(duration)} @ {fs/1000:.1f}kHz, {format_size(size)}")
+
+
+def log_timestamps(ts: np.ndarray, name: str = "Timestamps") -> None:
+    """Log timestamp array: range, count, duration."""
+    if len(ts) == 0:
+        logger.info(f"  {name}: empty")
+        return
+    duration = ts[-1] - ts[0]
+    logger.info(f"  {name}: [{ts[0]:.3f} - {ts[-1]:.3f}]s, {len(ts)} events, {format_duration(duration)}")
+
+
+def log_samples(samples: np.ndarray, name: str = "Samples") -> None:
+    """Log sample array: range, count."""
+    if len(samples) == 0:
+        logger.info(f"  {name}: empty")
+        return
+    logger.info(f"  {name}: [{samples[0]} - {samples[-1]}], {len(samples)} events")
+
+
+def log_intervals(intervals: list, name: str = "Intervals") -> None:
+    """Log intervals: count and total duration."""
+    if not intervals:
+        logger.info(f"  {name}: none")
+        return
+    total = sum(end - start for start, end in intervals)
+    logger.info(f"  {name}: {len(intervals)} sessions, {format_duration(total)} total")
+
+
+def setup_logger(debug: bool = False, log_path: Path = None):
+    logger.remove()
+    
+    logger.add(
+        sys.stderr,
+        format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
+        level="DEBUG" if debug else "INFO",
+        colorize=True
+    )
+    
+    if log_path:
+        logger.add(
+            log_path,
+            rotation="500 MB",
+            retention="10 days",
+            level="DEBUG",
+            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}"
+        )
+
+
+def load_config(config_path: str) -> dict:
+    path = Path(config_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Config not found: {config_path}")
+    
+    with open(path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    return config
+
+
+def validate_config(config: dict) -> dict:
+    required = ['recording_paths', 'remote_output', 'local_output', 'save_kwargs']
+    for k in required:
+        if k not in config:
+            raise ValueError(f"Missing config parameter: {k}")
+    
+    config.setdefault('session_name', 'default_session')
+    config.setdefault('probe_filter', None)
+    config.setdefault('target_fs', None)
+    
+    if not config['recording_paths']:
+        raise ValueError("No recording paths specified")
+    
+    for path in config['recording_paths']:
+        if not Path(path).exists():
+            raise FileNotFoundError(f"Recording not found: {path}")
+    
+    if not Path(config['local_output']).exists():
+        raise FileNotFoundError(f"Local output not found: {config['local_output']}")
+    
+    return config
+
+
+def normalize_probe_filter(probe_filter: list[str] | None, session_paths: list[str]) -> list[str]:
     if probe_filter is None:
-        # Auto-detect available probes from timestamp files
-        available_probes = set()
-        for session_path in rec_paths:
-            ts_files = list(Path(session_path).glob('**/timestamps.npy'))
-            for ts_file in ts_files:
+        available = set()
+        for path in session_paths:
+            for ts_file in Path(path).glob('**/timestamps.npy'):
                 ts_str = str(ts_file)
-                # Extract probe names from paths
                 for keyword in ['ProbeA', 'ProbeB', 'ProbeC', 'ProbeD', 'OneBox-ADC']:
                     if keyword in ts_str:
-                        available_probes.add(keyword)
-        probe_filter = sorted(list(available_probes))
-        logger.info(f"Found probes: {probe_filter}")
+                        available.add(keyword)
+        probe_filter = sorted(list(available))
+        logger.info(f"Auto-detected probes: {probe_filter}")
         return probe_filter
     
-    # Normalize ADC variants to OneBox-ADC
     normalized = []
     for probe in probe_filter:
         if probe.upper() in ['ADC', 'ONEBOX-ADC']:
@@ -46,238 +137,104 @@ def validate_probe_filter(
         else:
             normalized.append(probe)
     
-    # Remove duplicates
     return list(dict.fromkeys(normalized))
 
-def setup_logger(debug: bool = False):
-    """Setup console logger with INFO or DEBUG level."""
-    logger.remove()
-    logger.add(
-        sys.stderr,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
-        level="DEBUG" if debug else "INFO",
-        colorize=True
-    )
 
-def load_config(config_path):
-    if Path(config_path).exists():
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)        
-        logger.success(f"Loaded configuration from: {config_path}")
-        return config
-    else:
-        raise FileNotFoundError(f"Configuration file not found: {config_path}")
-
-def load_events(events_path, cont_path):
-    event_ts  = np.load(events_path, mmap_mode='r')
-    cont_ts   = np.load(cont_path, mmap_mode='r')
-    states    = np.load(events_path.replace('timestamps.npy', 'states.npy'), mmap_mode='r')
-    return event_ts, cont_ts, states
-
-def validate_config(config):
-    for k in ['recording_paths', 'remote_output', 'local_output', 'save_kwargs']:
-        if k not in config:
-            raise ValueError(f"Missing required configuration parameter: {k}")
-    
-    config.setdefault('session_name', 'default_session')
-    config.setdefault('probe_filter', None)
-    config.setdefault('target_fs', None)
-
-    if not config['recording_paths']:
-        raise ValueError("No recording paths specified in configuration.")
-    
-    # Define keywords that shouldn't appear in parent folder paths
-    # These keywords are used for stream/probe identification
-    reserved_keywords = ['ADC', 'Adc', 'ProbeA', 'ProbeB', 'ProbeC', 'ProbeD']
-    
-    # Validate recording paths
-    for path in config['recording_paths']:
-        if not Path(path).exists():
-            raise FileNotFoundError(f"Recording path not found: {path}")
-        
-        # Check parent folders for reserved keywords
-        path_obj = Path(path).resolve()
-        parent_parts = path_obj.parts
-        
-        for keyword in reserved_keywords:
-            for part in parent_parts:
-                if keyword in part:
-                    raise ValueError(
-                        f"Recording path contains reserved keyword '{keyword}' in parent folder: {path}\n")
-
-    if not Path(config['local_output']).exists():
-        raise FileNotFoundError(f"Local output directory not found: {config['local_output']}")
-
-    if not Path(config['remote_output']).exists():
-        raise FileNotFoundError(f"Remote output directory not found: {config['remote_output']}")
-
-    return config
-
-def setup(config_path: str = 'config.yaml', debug: bool = False) -> dict:
-    """
-    Initialize pipeline: load config, validate paths, setup logging.
-
-    Creates session directories and log file at {local_output}/{session_name}/.
-    """
-    # Load and validate config
-    setup_logger(debug=debug)
-    protocol = validate_config(load_config(config_path))
-    
-    # Extract config parameters
-    session_name = protocol['session_name']
-    session_name = session_name.strip().replace(' ', '_')
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    
-    protocol['session_name'] = session_name
-    
-    # Setup output paths
-    remote_output = Path(protocol['remote_output']).resolve()
-    local_output = Path(protocol['local_output']).resolve()
-
-    protocol['remote_output'] = remote_output / session_name
-    protocol['local_output'] = local_output / session_name
-
-    # Setup logging file in session folder root
-    protocol['local_output'].mkdir(parents=True, exist_ok=True)
-    log_path = protocol['local_output'] / f'{session_name}_{timestamp}.log'
-
-    logger.add(
-        log_path,
-        rotation="500 MB",
-        retention="10 days",
-        level="DEBUG",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}"
-    )
-    logger.success(f"Logger configured at {log_path}")
-
-    logger.info(f"Pipeline configuration:")
-    logger.info(f"Session: {session_name}")
-    logger.info(f"Recording sessions: {len(protocol['recording_paths'])}")
-    logger.info(f"Local output: {protocol['local_output']}")
-    logger.info(f"Remote output: {protocol['remote_output']}")
-    logger.debug(f"  Parallel jobs: {protocol['save_kwargs']['n_jobs']}")
-    logger.debug(f"  EEG downsampling frequency: {protocol['target_fs']}")
-    return protocol
-
-def format_file_size(size_bytes):
-    """Convert bytes to human-readable format."""
-    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-        if size_bytes < 1024.0:
-            return f"{size_bytes:.2f} {unit}"
-        size_bytes /= 1024.0
-    return f"{size_bytes:.2f} PB"
-
-
-def log_recording(rec, name="Recording"):
-    """Log SpikeInterface Recording objects."""
-    n_channels  = rec.get_num_channels()
-    duration    = rec.get_total_duration()
-    fs          = rec.get_sampling_frequency()
-    file_size   = rec.get_total_memory_size()
-    dtype       = rec.get_dtype()
-    duration_str = format_duration(duration)
-    logger.info(f"{name}: {n_channels} ch, {duration:.1f}s ({duration_str}) @ {fs/1000:.1f} kHz {dtype} ({format_file_size(file_size)})")
-    # Log filepath if available
-    if hasattr(rec, '_kwargs') and 'folder_path' in rec._kwargs:
-        filepath = rec._kwargs['folder_path']
-        logger.debug(f"Filepath: {filepath}")
-
-def log_timestamps(timestamps, name):
-    """Log timestamps basic information."""
-    start_ts = timestamps[0]
-    end_ts = timestamps[-1]
-    logger.info(f"{name}: {start_ts:.4f} ... {end_ts:.4f} s ({timestamps.size} samples)")
-
-def parse_timestamps(rec_paths: list[str], probe_filter: list[str]) -> dict[str, dict[str, list[str]]]:
-    """
-    Extract OpenEphys timestamp file paths from multi-session recordings, grouped by probe and type (event/continuous).
-    
-    Sorts files in each session by recording number.
-    
-    Returns Nested dict: {probe: {'event': [paths...], 'cont': [paths...]}}
-    """
+def parse_timestamps(session_paths: list[str], probe_filter: list[str]) -> dict[str, dict[str, list[str]]]:
     timestamps = {probe: {'event': [], 'cont': []} for probe in probe_filter}
-
-    for session_idx, session_path in enumerate(rec_paths, 1):
-        session_path = Path(session_path)
-        logger.debug(f"Session {session_idx}/{len(rec_paths)}: {session_path.name}") 
-        # Recursively get all timestamps.npy files
-        ts_files = list(session_path.glob('**/timestamps.npy'))
-        # Sort by recording number extracted from filename
-        def extract_recording_num(p):
-            match = re.search(r'recording(\d+)', str(p))
-            return int(match.group(1)) if match else 0
-        ts_files = sorted(ts_files, key=extract_recording_num)
+    
+    def extract_rec_num(p):
+        match = re.search(r'recording(\d+)', str(p))
+        return int(match.group(1)) if match else 0
+    
+    for session_path in session_paths:
+        ts_files = sorted(Path(session_path).glob('**/timestamps.npy'), key=extract_rec_num)
+        
         for ts_file in ts_files:
-            ts_file = str(ts_file)
+            ts_str = str(ts_file)
             for probe in probe_filter:
-                if probe in ts_file:
-                    if 'events' in ts_file:
-                        timestamps[probe]['event'].append(ts_file)
-                    elif 'continuous' in ts_file:
-                        timestamps[probe]['cont'].append(ts_file)
+                if probe in ts_str:
+                    if 'events' in ts_str:
+                        timestamps[probe]['event'].append(ts_str)
+                    elif 'continuous' in ts_str:
+                        timestamps[probe]['cont'].append(ts_str)
+    
     return timestamps
 
+
+def setup_pipeline(config_path: str, debug: bool = False) -> dict:
+    setup_logger(debug=debug)
+    
+    config = validate_config(load_config(config_path))
+    
+    session_name = config['session_name'].strip().replace(' ', '_')
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    remote = Path(config['remote_output']).resolve() / session_name
+    local = Path(config['local_output']).resolve() / session_name
+    local.mkdir(parents=True, exist_ok=True)
+    
+    config['session_name'] = session_name
+    config['remote_output'] = remote
+    config['local_output'] = local
+    
+    log_path = local / f'{session_name}_{timestamp}.log'
+    setup_logger(debug=debug, log_path=log_path)
+    
+    logger.info("=" * 60)
+    logger.info("PIPELINE INITIALIZED")
+    logger.info(f"  Session: {session_name}")
+    logger.info(f"  Input: {len(config['recording_paths'])} recording sessions")
+    logger.info(f"  Local: {local}")
+    logger.info(f"  Remote: {remote}")
+    logger.info("=" * 60)
+    
+    return config
+
+
 def copy_to_remote(
-    local_path: Path, 
-    remote_path: Path, 
+    local_path: Path,
+    remote_path: Path,
     overwrite_mode: Literal['prompt', 'all', 'skip-all'] = 'prompt'
 ) -> None:
-    """
-    Recursively copy session directory to remote/network storage.
-    
-    Parameters
-    ----------
-    local_path : Path
-        Source directory
-    remote_path : Path
-        Destination directory
-    overwrite_mode : {'prompt', 'all', 'skip-all'}, default='prompt'
-        File conflict resolution options
-    """
-    logger.info("COPYING TO REMOTE STORAGE")
+    logger.info("COPYING TO REMOTE")
     logger.info(f"  From: {local_path}")
     logger.info(f"  To: {remote_path}")
     
     remote_path.parent.mkdir(parents=True, exist_ok=True)
     
     copied_size = 0
-    skipped_count = 0
-    
-    if overwrite_mode == 'all':
-        logger.info("Overwrite mode: Overwriting all existing files")
-    elif overwrite_mode == 'skip-all':
-        logger.info("Overwrite mode: Skipping all existing files")
+    copied_count = 0
+    skipped = 0
     
     for local_file in local_path.rglob('*'):
-        if local_file.is_file():
-            relative_path = local_file.relative_to(local_path)
-            remote_file = remote_path / relative_path
-            
-            if remote_file.exists():
-                if overwrite_mode == 'prompt':
-                    logger.warning(f"File already exists: {relative_path}")
-                    response = input(f"Overwrite '{relative_path}'? (y/n/all/skip-all) [default: n]: ").strip().lower()
-                    if response == 'all':
-                        overwrite_mode = 'all'
-                        logger.info("Overwriting all existing files")
-                    elif response == 'skip-all':
-                        overwrite_mode = 'skip-all'
-                        logger.info("Skipping all existing files")
-                        skipped_count += 1
-                        continue
-                    elif response != 'y':
-                        logger.info(f"Skipping: {relative_path}")
-                        skipped_count += 1
-                        continue
-                elif overwrite_mode == 'skip-all':
-                    skipped_count += 1
+        if not local_file.is_file():
+            continue
+        
+        relative = local_file.relative_to(local_path)
+        remote_file = remote_path / relative
+        
+        if remote_file.exists():
+            if overwrite_mode == 'skip-all':
+                skipped += 1
+                continue
+            elif overwrite_mode == 'prompt':
+                response = input(f"Overwrite '{relative}'? (y/n/all/skip-all): ").strip().lower()
+                if response == 'all':
+                    overwrite_mode = 'all'
+                elif response == 'skip-all':
+                    overwrite_mode = 'skip-all'
+                    skipped += 1
                     continue
-            
-            remote_file.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(local_file, remote_file)
-            copied_size += local_file.stat().st_size
+                elif response != 'y':
+                    skipped += 1
+                    continue
+        
+        remote_file.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(local_file, remote_file)
+        copied_size += local_file.stat().st_size
+        copied_count += 1
     
-    logger.success(f"  Copied {format_file_size(copied_size)} to remote")
-    if skipped_count > 0:
-        logger.debug(f"  Skipped {skipped_count} file(s)")
+    logger.info(f"  Copied: {copied_count} files, {format_size(copied_size)}")
+    if skipped > 0:
+        logger.info(f"  Skipped: {skipped} files")
