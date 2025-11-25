@@ -80,7 +80,10 @@ class Probe:
             self.intervals.append((t_offset, t_offset + session_duration))
             self.starting_states.append(int(ts.states[0]))
             
-            logger.debug(f"  Session {idx}: {format_duration(session_duration)}, {len(local_event)} events, state={ts.states[0]}")
+            logger.info(f"  Segment {idx}:")
+            log_timestamps(ts.cont_ts, "    Continuous")
+            log_timestamps(ts.event_ts, "    Local Events")
+            log_timestamps(global_event, "    Global Events")
             
             t_offset += session_duration
         
@@ -195,7 +198,6 @@ class ADC(Probe):
         super().__init__(name, fs)
         self.global_event_samples: list[np.ndarray] = []
         self.sample_intervals: list[tuple[int, int]] = []
-        self.continuous_timestamps: Optional[np.ndarray] = None
     
     def load_timestamps(self, event_path: str, cont_path: str) -> SessionTimestamps:
         ts = super().load_timestamps(event_path, cont_path)
@@ -215,8 +217,6 @@ class ADC(Probe):
         self.global_event_samples = []
         self.sample_intervals = []
         sample_offset = 0
-        continuous_ts_list = []
-        t_last = 0.0
         
         for idx, ts in enumerate(self.session_timestamps):
             local_samples = ts.event_samples - ts.cont_samples[0]
@@ -226,35 +226,15 @@ class ADC(Probe):
             session_samples = ts.cont_samples[-1] - ts.cont_samples[0]
             self.sample_intervals.append((sample_offset, sample_offset + session_samples))
             
-            logger.debug(f"  Session {idx}: samples [{sample_offset} - {sample_offset + session_samples}], {len(local_samples)} events")
+            logger.debug(f"  Segment {idx}: samples [{sample_offset} - {sample_offset + session_samples}], {len(local_samples)} events")
             
             sample_offset += session_samples + 1
-            
-            session_cont = ts.cont_ts - ts.cont_ts[0] + t_last
-            t_last = session_cont[-1] + self.dt
-            continuous_ts_list.append(session_cont)
-        
-        self.continuous_timestamps = np.concatenate(continuous_ts_list)
         
         log_samples(self.get_global_samples(), f"{self.name} samples")
-        logger.info(f"  Total: {sample_offset} samples, {format_duration(self.continuous_timestamps[-1])} continuous")
+        logger.info(f"  Total: {sample_offset} samples")
     
     def get_global_samples(self) -> np.ndarray:
         return np.concatenate(self.global_event_samples)
-    
-    def save_timestamps(self, output_path: Path) -> None:
-        if self.continuous_timestamps is None:
-            raise RuntimeError("Call build_global_timestamps() first")
-        
-        ts_file = output_path / self.name / 'timestamps.npy'
-        ts_file.parent.mkdir(parents=True, exist_ok=True)
-        
-        if ts_file.exists():
-            logger.info(f"{self.name}: Timestamps file exists, skipping")
-            return
-        
-        np.save(ts_file, self.continuous_timestamps)
-        logger.info(f"{self.name}: Saved timestamps ({format_size(ts_file.stat().st_size)})")
 
 
 def detect_chirp_reset(event_ts: np.ndarray, limit: int = 500) -> int:

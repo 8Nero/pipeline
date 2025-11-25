@@ -60,7 +60,7 @@ def log_intervals(intervals: list, name: str = "Intervals") -> None:
         logger.info(f"  {name}: none")
         return
     total = sum(end - start for start, end in intervals)
-    logger.info(f"  {name}: {len(intervals)} sessions, {format_duration(total)} total")
+    logger.info(f"  {name}: {len(intervals)} segments, {format_duration(total)} total")
 
 
 def setup_logger(debug: bool = False, log_path: Path = None):

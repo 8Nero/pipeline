@@ -2,6 +2,7 @@
 Pipeline operations: loading, spike sorting, and synchronization.
 """
 import numpy as np
+import re
 import spikeinterface as si
 import spikeinterface.extractors as se
 from pathlib import Path
@@ -32,8 +33,10 @@ def load_probes(
         else:
             probes[name] = Probe(name=name)
     
+    # 1. Load Recordings (per session)
     for session_idx, session_path in enumerate(session_paths):
-        logger.info(f"Session {session_idx + 1}/{len(session_paths)}: {Path(session_path).name}")
+        session_name = Path(session_path).name
+        logger.info(f"Session {session_idx + 1}/{len(session_paths)}: {session_name}")
         
         stream_names, stream_ids = se.get_neo_streams('openephysbinary', session_path)
         
@@ -45,13 +48,33 @@ def load_probes(
             
             rec = probes[probe_name].load_session(session_path, stream_id)
             log_recording(rec, f"  {probe_name}")
-        
-        for name, probe in probes.items():
-            event_paths = timestamp_map[name]['event']
-            cont_paths = timestamp_map[name]['cont']
             
-            if session_idx < len(event_paths):
-                probe.load_timestamps(event_paths[session_idx], cont_paths[session_idx])
+    # 2. Load Timestamps (per recording segment)
+    logger.info("LOADING TIMESTAMPS")
+    for name, probe in probes.items():
+        event_paths = timestamp_map[name]['event']
+        cont_paths = timestamp_map[name]['cont']
+        
+        logger.info(f"{name}: Loading {len(event_paths)} timestamp segments")
+        
+        for i, (ep, cp) in enumerate(zip(event_paths, cont_paths)):
+            # Extract debug info
+            ep_path = Path(ep)
+            rec_match = re.search(r'recording(\d+)', str(ep_path))
+            rec_num = rec_match.group(1) if rec_match else "?"
+            
+            # Find session name from path
+            session_name = "Unknown"
+            for sp in session_paths:
+                if sp in str(ep_path):
+                    session_name = Path(sp).name
+                    break
+            
+            ts = probe.load_timestamps(ep, cp)
+            
+            logger.info(f"  Segment {i+1} [{session_name}/rec{rec_num}]:")
+            log_timestamps(ts.cont_ts, "    Continuous")
+            log_timestamps(ts.event_ts, "    Events")
     
     logger.info(f"Loaded {len(probes)} probes")
     return probes
@@ -205,7 +228,7 @@ def synchronize_probes(
     logger.info("SYNCHRONIZING TO ADC")
     
     adc.build_global_timestamps()
-    adc.save_timestamps(output_path)
+    # adc.save_timestamps(output_path)
     
     synced_spikes = {}
     
