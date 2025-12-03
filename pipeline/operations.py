@@ -214,6 +214,13 @@ def synchronize_probes(
         
         # Probe samples -> ADC samples -> ADC timestamps
         adc_spike_samples = interpolate(ks_spike_samples, probe.sync_map)
+        
+        # Check if adc_spike_samples are sorted
+        unsorted_mask = adc_spike_samples[:-1] > adc_spike_samples[1:]
+        if np.any(unsorted_mask):
+            unsorted_indices = np.where(unsorted_mask)[0]
+            logger.warning(f"  adc_spike_samples not sorted at {len(unsorted_indices)} indices: {unsorted_indices[:10]}{'...' if len(unsorted_indices) > 10 else ''}")
+        
         adc_spike_times = adc_spike_samples / adc.fs
         logger.info(f"  Output: [{adc_spike_times[0]:.3f} - {adc_spike_times[-1]:.3f}]s")
         
