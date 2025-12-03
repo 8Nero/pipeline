@@ -215,13 +215,13 @@ def synchronize_probes(
         logger.info(f"{name}:")
         
         probe.build_global_references(mode='samples')
-        probe.sync_to(target_probe, mode='samples')
+        sync_map = probe.sync_to(target_probe, mode='samples')
         
         ks_spike_samples = spike_times[name].flatten()
         logger.info(f"  Input: {len(ks_spike_samples)} spikes, samples [{ks_spike_samples[0]} - {ks_spike_samples[-1]}]")
         
         # Probe samples -> ADC samples -> ADC timestamps
-        adc_spike_samples = interpolate(ks_spike_samples, probe.sync_map)
+        adc_spike_samples = interpolate(ks_spike_samples, sync_map)
         
         # Check if adc_spike_samples are sorted
         unsorted_mask = adc_spike_samples[:-1] > adc_spike_samples[1:]
@@ -235,7 +235,7 @@ def synchronize_probes(
         save_dir = output_path / name
         save_dir.mkdir(parents=True, exist_ok=True)
         
-        np.save(save_dir / "sync_map.npy", probe.sync_map)
+        np.save(save_dir / "sync_map.npy", sync_map)
         np.save(save_dir / "adc_spike_samples.npy", adc_spike_samples)
         np.save(save_dir / "adc_spike_times.npy", adc_spike_times)
         
