@@ -41,14 +41,14 @@ class Probe:
         
         self.sync_map: Optional[np.ndarray] = None
         self.concatenated: Optional[si.BaseRecording] = None
-        self._mode: ReferenceMode = 'samples'
     
     def load_from_sessions(self, session_paths: list[str]) -> None:
         """Load recordings and timestamps from session paths."""
         logger.info(f"{self.name}: Loading from {len(session_paths)} sessions")
-        
+
         for session_path in session_paths:
             path = Path(session_path)
+            logger.debug(f"Session: {path}")
             
             # Find and load recording stream
             stream_names, stream_ids = se.get_neo_streams('openephysbinary', session_path)
@@ -63,8 +63,8 @@ class Probe:
             event_paths = self._find_timestamp_file(path, 'events')
             cont_paths = self._find_timestamp_file(path, 'continuous')
             for event_path, cont_path in zip(event_paths, cont_paths):
-                if self.name in str(event_path):
-                    self._load_session_data(event_path, cont_path)
+                logger.debug(f"    Loading timestamps from {event_path.relative_to(path)} and {cont_path.relative_to(path)}")
+                self._load_session_data(str(event_path), str(cont_path))
     
     def _find_timestamp_file(self, session_path: Path, folder: str) -> Optional[str]:
         """Find timestamps.npy for this probe in given folder (sorted by Recording number)."""
@@ -73,6 +73,7 @@ class Probe:
             return int(match.group(1)) if match else 0
         
         ts_files = sorted(session_path.glob(f'**/{folder}/**/timestamps.npy'), key=extract_rec_num)
+        ts_files = [p for p in ts_files if self.name in str(p)]
         return ts_files
     
     def _load_session_data(self, event_path: str, cont_path: str) -> SessionData:
@@ -95,7 +96,6 @@ class Probe:
     
     def build_global_references(self, mode: ReferenceMode = 'samples') -> np.ndarray:
         """Build global event references across sessions. Returns concatenated global events."""
-        self._mode = mode
         logger.info(f"{self.name}: Building global references using {mode}")
         
         global_events = []
@@ -139,33 +139,30 @@ class Probe:
         log_intervals(intervals, f"{self.name} ({mode})")
         return self.global_events[mode]
     
-    def get_global_samples(self) -> np.ndarray:
-        """Get concatenated global events in samples."""
-        if 'samples' not in self.global_events:
-            raise ValueError("Global samples not built. Call build_global_references('samples') first.")
-        return self.global_events['samples']
+    def get_global_events(self, mode: ReferenceMode) -> np.ndarray:
+        """Get concatenated global events in specified mode."""
+        if mode not in self.global_events:
+            raise ValueError(f"Global {mode} not built. Call build_global_references('{mode}') first.")
+        return self.global_events[mode]
     
-    def get_global_timestamps(self) -> np.ndarray:
-        """Get concatenated global events in timestamps."""
-        if 'timestamps' not in self.global_events:
-            raise ValueError("Global timestamps not built. Call build_global_references('timestamps') first.")
-        return self.global_events['timestamps']
-    
-    def _get_local_events(self, session_idx: int) -> np.ndarray:
+    def _get_local_events(self, session_idx: int, mode: ReferenceMode) -> np.ndarray:
+        """Get local events for a session in specified mode."""
         session = self.sessions[session_idx]
-        if self._mode == 'samples':
+        if mode == 'samples':
             return session.event_samples - session.cont_samples[0]
-        return session.event_ts - session.cont_ts[0]
+        elif mode == 'timestamps':
+            return session.event_ts - session.cont_ts[0]
     
-    def _get_session_length(self, session_idx: int):
+    def _get_session_length(self, session_idx: int, mode: ReferenceMode):
+        """Get session length in specified mode."""
         session = self.sessions[session_idx]
-        if self._mode == 'samples':
+        if mode == 'samples':
             return int(session.cont_samples[-1] - session.cont_samples[0])
-        return session.cont_ts[-1] - session.cont_ts[0]
+        elif mode == 'timestamps':
+            return session.cont_ts[-1] - session.cont_ts[0]
     
-    def sync_to(self, target: 'Probe') -> np.ndarray:
+    def sync_to(self, target: 'Probe', mode: ReferenceMode = 'samples') -> np.ndarray:
         """Build sync_map to target probe's reference frame."""
-        mode = self._mode
         logger.info(f"{self.name}: Syncing to {target.name} (using {mode})")
         
         self_values = []
@@ -173,8 +170,8 @@ class Probe:
         log_fn = log_samples if mode == 'samples' else log_timestamps
         
         for session_idx in range(len(self.intervals[mode])):
-            self_local = self._get_local_events(session_idx)
-            target_local = target._get_local_events(session_idx)
+            self_local = self._get_local_events(session_idx, mode)
+            target_local = target._get_local_events(session_idx, mode)
             
             log_fn(self_local, f"  Session {session_idx} self_local")
             log_fn(target_local, f"  Session {session_idx} target_local")
@@ -185,7 +182,7 @@ class Probe:
                 log_fn(self_local, f"  Session {session_idx} self_local (aligned)")
                 log_fn(target_local, f"  Session {session_idx} target_local (aligned)")
             
-            overlap = min(self._get_session_length(session_idx), target._get_session_length(session_idx))
+            overlap = min(self._get_session_length(session_idx, mode), target._get_session_length(session_idx, mode))
             logger.debug(f"  Session {session_idx}: overlap={overlap}")
             
             self_local = self_local[self_local <= overlap]

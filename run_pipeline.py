@@ -9,6 +9,7 @@ from pipeline import (
     concatenate_probes,
     run_kilosort4,
     synchronize_probes,
+    save_adc_references,
     setup_pipeline,
     normalize_probe_filter,
     copy_to_remote
@@ -57,16 +58,15 @@ def main():
         output_path=config['local_output']
     )
     
-    adc = probes.get('OneBox-ADC')
-    if adc and isinstance(adc, Probe):
-        synchronize_probes(
-            probes=neural_probes,
-            adc=adc,
-            spike_times=spike_times,
-            output_path=config['local_output']
-        )
-    else:
-        logger.warning("ADC not available, skipping synchronization")
+    # Save ADC samples -> timestamps mapping
+    save_adc_references(adc=probes.get('OneBox-ADC'), output_path=config['local_output'])
+    
+    synchronize_probes(
+        probes=neural_probes,
+        target='OneBox-ADC',
+        spike_times=spike_times,
+        output_path=config['local_output']
+    )
     
     copy_to_remote(
         local_path=config['local_output'],

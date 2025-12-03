@@ -170,45 +170,52 @@ def run_kilosort4(
     return spike_times
 
 
-def synchronize_probes(
-    probes: dict[str, Probe],
-    adc: Probe,
-    spike_times: dict[str, np.ndarray],
-    output_path: Path
-) -> dict[str, np.ndarray]:
-    """Synchronize probe spike times to ADC reference frame."""
-    logger.info("=" * 60)
-    logger.info("SYNCHRONIZING TO ADC")
+def save_adc_references(adc: Probe, output_path: Path) -> None:
+    """Save ADC sample-to-timestamp mapping."""
+    logger.info("SAVING ADC REFERENCES")
     
-    # Build ADC references with sample and timestamps
     adc.build_global_references(mode='samples')
     adc.build_global_references(mode='timestamps')
     
-    # Get global references
-    adc_global_samples = adc.get_global_samples()
-    adc_global_timestamps = adc.get_global_timestamps()
+    adc_global_samples = adc.get_global_events('samples')
+    adc_global_timestamps = adc.get_global_events('timestamps')
     
-    # Save ADC sample-to-timestamp mapping
     adc_dir = output_path / adc.name
     adc_dir.mkdir(parents=True, exist_ok=True)
     np.save(adc_dir / "global_samples.npy", adc_global_samples)
     np.save(adc_dir / "global_timestamps.npy", adc_global_timestamps)
     logger.info(f"  Saved ADC references to {adc_dir}")
+
+
+def synchronize_probes(
+    probes: dict[str, Probe],
+    target: str,
+    spike_times: dict[str, np.ndarray],
+    output_path: Path
+) -> dict[str, np.ndarray]:
+    """Synchronize probe spikes to target (ADC) reference frame."""
+    logger.info("=" * 60)
+    logger.info("SYNCHRONIZING")
     
+    target_probe = probes.get(target)
+    if target_probe is None:
+        raise ValueError(f"Target probe '{target}' not found in probes dictionary.")
+    
+    target_probe.build_global_references(mode='samples')
     synced_spikes = {}
     
     for name, probe in probes.items():
-        if name == 'OneBox-ADC':
+        if name == target:
             continue
         
         if name not in spike_times:
-            logger.warning(f"{name}: No spike times, skipping")
+            logger.warning(f"{name}: No spikes, skipping")
             continue
         
         logger.info(f"{name}:")
         
         probe.build_global_references(mode='samples')
-        probe.sync_to(adc)
+        probe.sync_to(target_probe, mode='samples')
         
         ks_spike_samples = spike_times[name].flatten()
         logger.info(f"  Input: {len(ks_spike_samples)} spikes, samples [{ks_spike_samples[0]} - {ks_spike_samples[-1]}]")
@@ -222,7 +229,7 @@ def synchronize_probes(
             unsorted_indices = np.where(unsorted_mask)[0]
             logger.warning(f"  adc_spike_samples not sorted at {len(unsorted_indices)} indices: {unsorted_indices[:10]}{'...' if len(unsorted_indices) > 10 else ''}")
         
-        adc_spike_times = adc_spike_samples / adc.fs
+        adc_spike_times = adc_spike_samples / target_probe.fs
         logger.info(f"  Output: [{adc_spike_times[0]:.3f} - {adc_spike_times[-1]:.3f}]s")
         
         save_dir = output_path / name

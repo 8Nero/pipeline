@@ -4,6 +4,7 @@ from .operations import (
     concatenate_probes,
     run_kilosort4,
     synchronize_probes,
+    save_adc_references,
     downsample_eeg
 )
 from .decimation import DecimatedRecording
