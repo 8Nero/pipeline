@@ -30,10 +30,10 @@ def format_size(size_bytes: float) -> str:
 
 def log_recording(rec, name: str = "Recording") -> None:
     """Log recording: channels, duration, sampling rate, size."""
-    n_ch = rec.get_num_channels()
-    duration = rec.get_total_duration()
-    fs = rec.get_sampling_frequency()
-    size = rec.get_total_memory_size()
+    n_ch        = rec.get_num_channels()
+    duration    = rec.get_total_duration()
+    fs          = rec.get_sampling_frequency()
+    size        = rec.get_total_memory_size()
     logger.info(f"  {name}: {n_ch}ch, {format_duration(duration)} @ {fs/1000:.1f}kHz, {format_size(size)}")
 
 
@@ -63,7 +63,7 @@ def log_intervals(intervals: list, name: str = "Intervals") -> None:
     logger.info(f"  {name}: {len(intervals)} sessions, {format_duration(total)} total")
 
 
-def setup_logger(debug: bool = False, log_path: Path = None):
+def setup_logger(debug: bool = True, log_path: Path = None):
     logger.remove()
     
     logger.add(
