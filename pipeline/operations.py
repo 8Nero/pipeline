@@ -11,70 +11,23 @@ from typing import Optional
 
 from kilosort import run_kilosort, DEFAULT_SETTINGS
 
-from .probe import Probe, ADC, interpolate_to_target
+from .probe import Probe, interpolate
 from .decimation import DecimatedRecording
-from .utils import log_recording, log_timestamps, format_duration, format_size
+from .utils import log_recording
 
 
-def load_probes(
-    session_paths: list[str],
-    probe_names: list[str],
-    timestamp_map: dict[str, dict[str, list[str]]]
-) -> dict[str, Probe]:
-    """Load probe recordings and timestamps from multiple sessions."""
+def load_probes(session_paths: list[str], probe_names: list[str]) -> dict[str, Probe]:
+    """Load probes from session paths."""
     logger.info("LOADING PROBES")
     logger.info(f"  Probes: {probe_names}")
     logger.info(f"  Sessions: {len(session_paths)}")
     
     probes = {}
     for name in probe_names:
-        if name == 'OneBox-ADC':
-            probes[name] = ADC(name=name)
-        else:
-            probes[name] = Probe(name=name)
-    
-    # 1. Load Recordings (per session)
-    for session_idx, session_path in enumerate(session_paths):
-        session_name = Path(session_path).name
-        logger.info(f"Session {session_idx + 1}/{len(session_paths)}: {session_name}")
-        
-        stream_names, stream_ids = se.get_neo_streams('openephysbinary', session_path)
-        
-        for stream_name, stream_id in zip(stream_names, stream_ids):
-            probe_name = stream_name.split(".")[-1]
-            
-            if "SYNC" in stream_name or probe_name not in probe_names:
-                continue
-            
-            rec = probes[probe_name].load_session(session_path, stream_id)
-            log_recording(rec, f"  {probe_name}")
-            
-    # 2. Load Timestamps (per recording segment)
-    logger.info("LOADING TIMESTAMPS")
-    for name, probe in probes.items():
-        event_paths = timestamp_map[name]['event']
-        cont_paths = timestamp_map[name]['cont']
-        
-        logger.info(f"{name}: Loading {len(event_paths)} timestamp segments")
-        
-        for i, (ep, cp) in enumerate(zip(event_paths, cont_paths)):
-            # Extract debug info
-            ep_path = Path(ep)
-            rec_match = re.search(r'recording(\d+)', str(ep_path))
-            rec_num = rec_match.group(1) if rec_match else "?"
-            
-            # Find session name from path
-            session_name = "Unknown"
-            for sp in session_paths:
-                if sp in str(ep_path):
-                    session_name = Path(sp).name
-                    break
-            
-            ts = probe.load_timestamps(ep, cp)
-            
-            logger.info(f"  Segment {i+1} [{session_name}/rec{rec_num}]:")
-            log_timestamps(ts.cont_ts, "    Continuous")
-            log_timestamps(ts.event_ts, "    Events")
+        fs = 30300.5 if name == 'OneBox-ADC' else 30000.0
+        probe = Probe(name=name, fs=fs)
+        probe.load_from_sessions(session_paths)
+        probes[name] = probe
     
     logger.info(f"Loaded {len(probes)} probes")
     return probes
@@ -219,16 +172,28 @@ def run_kilosort4(
 
 def synchronize_probes(
     probes: dict[str, Probe],
-    adc: ADC,
+    adc: Probe,
     spike_times: dict[str, np.ndarray],
     output_path: Path
 ) -> dict[str, np.ndarray]:
-    """Synchronize probe spike times to ADC global timebase."""
+    """Synchronize probe spike times to ADC reference frame."""
     logger.info("=" * 60)
     logger.info("SYNCHRONIZING TO ADC")
     
-    adc.build_global_timestamps()
-    # adc.save_timestamps(output_path)
+    # Build ADC references with sample and timestamps
+    adc.build_global_references(mode='samples')
+    adc.build_global_references(mode='timestamps')
+    
+    # Get global references
+    adc_global_samples = adc.get_global_samples()
+    adc_global_timestamps = adc.get_global_timestamps()
+    
+    # Save ADC sample-to-timestamp mapping
+    adc_dir = output_path / adc.name
+    adc_dir.mkdir(parents=True, exist_ok=True)
+    np.save(adc_dir / "global_samples.npy", adc_global_samples)
+    np.save(adc_dir / "global_timestamps.npy", adc_global_timestamps)
+    logger.info(f"  Saved ADC references to {adc_dir}")
     
     synced_spikes = {}
     
@@ -242,24 +207,34 @@ def synchronize_probes(
         
         logger.info(f"{name}:")
         
-        probe.build_global_timestamps()
+        probe.build_global_references(mode='samples')
         probe.sync_to(adc)
         
-        ks_spikes = spike_times[name] / probe.fs
-        log_timestamps(ks_spikes, f"  Input spikes")
+        ks_spike_samples = spike_times[name].flatten()
+        logger.info(f"  Input: {len(ks_spike_samples)} spikes, samples [{ks_spike_samples[0]} - {ks_spike_samples[-1]}]")
         
-        adc_spikes = interpolate_to_target(ks_spikes, probe.timestamps_map)
-        log_timestamps(adc_spikes, f"  Output spikes")
+        # Probe samples -> ADC samples -> ADC timestamps
+        adc_spike_samples = interpolate(ks_spike_samples, probe.sync_map)
+        
+        # Check if adc_spike_samples are sorted
+        unsorted_mask = adc_spike_samples[:-1] > adc_spike_samples[1:]
+        if np.any(unsorted_mask):
+            unsorted_indices = np.where(unsorted_mask)[0]
+            logger.warning(f"  adc_spike_samples not sorted at {len(unsorted_indices)} indices: {unsorted_indices[:10]}{'...' if len(unsorted_indices) > 10 else ''}")
+        
+        adc_spike_times = adc_spike_samples / adc.fs
+        logger.info(f"  Output: [{adc_spike_times[0]:.3f} - {adc_spike_times[-1]:.3f}]s")
         
         save_dir = output_path / name
         save_dir.mkdir(parents=True, exist_ok=True)
         
-        np.save(save_dir / "timestamps_map.npy", probe.timestamps_map)
-        np.save(save_dir / "adc_spikes.npy", adc_spikes)
+        np.save(save_dir / "sync_map.npy", probe.sync_map)
+        np.save(save_dir / "adc_spike_samples.npy", adc_spike_samples)
+        np.save(save_dir / "adc_spike_times.npy", adc_spike_times)
         
-        synced_spikes[name] = adc_spikes
+        synced_spikes[name] = adc_spike_times
         logger.info(f"  Saved to {save_dir}")
-    
+
     logger.info("SYNCHRONIZATION COMPLETED")
     logger.info("=" * 60)
     return synced_spikes

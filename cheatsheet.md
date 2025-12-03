@@ -6,7 +6,7 @@ Object-oriented pipeline for processing OpenEphys neural recordings.
 
 ```
 pipeline/
-├── probe.py          # Probe, ADC classes
+├── probe.py          # Probe class (also used for ADC)
 ├── operations.py     # load, concat, sort, sync
 ├── decimation.py     # DecimatedRecording
 └── utils.py          # Config, logging, file handling
@@ -18,62 +18,51 @@ pipeline/
 
 ```python
 probe = Probe(name='ProbeA', fs=30000.0)
-probe.load_session(session_path, stream_id)
-probe.load_timestamps(event_path, cont_path)
-probe.build_global_timestamps()
+probe.load_from_sessions(session_paths)  # loads recordings + timestamps
+probe.build_global_references(mode='samples')  # or mode='timestamps'
 probe.concatenate(output_path, save_kwargs)
 
-# Sync to target timeline
-probe.sync_to(adc)  # creates probe.timestamps_map
+# Sync to target
+probe.sync_to(adc)  # creates probe.sync_map
 ```
 
-### ADC
+### ADC (using Probe)
 
 ```python
-adc = ADC(name='OneBox-ADC', fs=30300.5)
-adc.load_timestamps(event_path, cont_path)  # loads sample_numbers too
-adc.build_global_timestamps()
+adc = Probe(name='OneBox-ADC', fs=30300.5)
+adc.load_from_sessions(session_paths)
 
-# Access global samples/timestamps for interpolation
-adc.get_global_samples()
-adc.get_global_timestamps()
+# Build references in both modes
+adc.build_global_references(mode='samples')
+global_samples = adc.get_global_events()
+
+adc.build_global_references(mode='timestamps')
+global_timestamps = adc.get_global_events()
+
+# Convert samples to timestamps (same clock)
+timestamps = samples / adc.fs
 ```
 
 ## Synchronization
 
-Each probe builds its own timeline. Use `sync_to()` to create a mapping to the target:
+Sample-based sync with direct timestamp conversion:
 
 ```python
-probe.build_global_timestamps()
-adc.build_global_timestamps()
+probe.build_global_references(mode='samples')
+adc.build_global_references(mode='samples')
 
-probe.sync_to(adc)  # probe.timestamps_map is now [N, 2]
+probe.sync_to(adc)  # probe.sync_map is [N, 2] (samples)
 
-# Interpolate spike times
-adc_spikes = interpolate_to_target(probe_spikes, probe.timestamps_map)
+# Convert spike samples to ADC reference
+adc_samples = interpolate(spike_samples, probe.sync_map)
+adc_times = adc_samples / adc.fs
 ```
 
-### Handling mismatched durations
+### Workflow
 
 ```
-Session 2: ProbeA=50s, ADC=100s
-
-probe.sync_to(adc) uses only the 50s overlap.
-Next session offset advances by probe's duration (50s), not ADC's.
-```
-
-## ADC Sample Interpolation
-
-Convert TTL sample indices to timestamps:
-
-```python
-adc.build_global_timestamps()
-
-camera_timestamps = samples_to_timestamps(
-    camera_sample_indices,
-    adc.get_global_samples(),
-    adc.get_global_timestamps()
-)
+1. Probe spike samples -> ADC samples (via sync_map interpolation)
+2. ADC samples -> ADC timestamps (divide by adc.fs)
 ```
 
 ## Usage
@@ -88,13 +77,19 @@ python run_pipeline.py --probe ProbeA ProbeB --debug
 ### Scripting
 
 ```python
-from pipeline import Probe, ADC, interpolate_to_target, samples_to_timestamps
+from pipeline import Probe, interpolate
 
 probe = Probe('ProbeA')
-adc = ADC()
+adc = Probe('OneBox-ADC', fs=30300.5)
 
-# ... load and build timestamps ...
+probe.load_from_sessions(session_paths)
+adc.load_from_sessions(session_paths)
+
+probe.build_global_references(mode='samples')
+adc.build_global_references(mode='samples')
 
 probe.sync_to(adc)
-synced_spikes = interpolate_to_target(spikes, probe.timestamps_map)
+
+adc_samples = interpolate(spike_samples, probe.sync_map)
+adc_times = adc_samples / adc.fs
 ```

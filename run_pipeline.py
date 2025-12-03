@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
-"""
-Main pipeline script for processing OpenEphys neural recordings.
-"""
 import argparse
 from pathlib import Path
 from loguru import logger
 
 from pipeline import (
-    ADC,
+    Probe,
     load_probes,
     concatenate_probes,
     run_kilosort4,
     synchronize_probes,
     setup_pipeline,
-    parse_timestamps,
     normalize_probe_filter,
     copy_to_remote
 )
@@ -44,12 +40,9 @@ def main():
     
     logger.info(f"Probes: {probe_names}")
     
-    timestamp_map = parse_timestamps(config['recording_paths'], probe_names)
-    
     probes = load_probes(
         session_paths=config['recording_paths'],
-        probe_names=probe_names,
-        timestamp_map=timestamp_map
+        probe_names=probe_names
     )
     
     neural_probes = concatenate_probes(
@@ -65,7 +58,7 @@ def main():
     )
     
     adc = probes.get('OneBox-ADC')
-    if adc and isinstance(adc, ADC):
+    if adc and isinstance(adc, Probe):
         synchronize_probes(
             probes=neural_probes,
             adc=adc,
