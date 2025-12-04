@@ -195,8 +195,19 @@ def setup_pipeline(config_path: str, debug: bool = False) -> dict:
 def copy_to_remote(
     local_path: Path,
     remote_path: Path,
-    overwrite_mode: Literal['prompt', 'all', 'skip-all'] = 'prompt'
+    overwrite_mode: Literal['prompt', 'all', 'skip-all', 'newer'] = 'prompt'
 ) -> None:
+    """Copy files to remote storage.
+    
+    Args:
+        local_path: Source directory path.
+        remote_path: Destination directory path.
+        overwrite_mode: How to handle existing files:
+            - 'prompt': Ask user for each file
+            - 'all': Overwrite all existing files
+            - 'skip-all': Skip all existing files
+            - 'newer': Only overwrite if local file is newer than remote
+    """
     logger.info("COPYING TO REMOTE")
     logger.info(f"  From: {local_path}")
     logger.info(f"  To: {remote_path}")
@@ -218,6 +229,12 @@ def copy_to_remote(
             if overwrite_mode == 'skip-all':
                 skipped += 1
                 continue
+            elif overwrite_mode == 'newer':
+                local_mtime = local_file.stat().st_mtime
+                remote_mtime = remote_file.stat().st_mtime
+                if local_mtime <= remote_mtime:
+                    skipped += 1
+                    continue
             elif overwrite_mode == 'prompt':
                 response = input(f"Overwrite '{relative}'? (y/n/all/skip-all): ").strip().lower()
                 if response == 'all':

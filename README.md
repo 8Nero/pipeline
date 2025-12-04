@@ -80,9 +80,10 @@ python -m run_pipeline --probe ProbeA --config_remote session1.yaml
 python -m run_pipeline --probe ProbeA ADC           
 
 # Overwrite options when copying to remote server
+python -m run_pipeline --overwrite newer            # Default: Only overwrite if local file is newer
 python -m run_pipeline --overwrite prompt           # Prompt before overwriting files
 python -m run_pipeline --overwrite skip-all         # Skip all existing files when copying to remote storage
-python -m run_pipeline --overwrite all              # Default: Overwrite all existing files when copying to remote storage
+python -m run_pipeline --overwrite all              # Overwrite all existing files when copying to remote storage
 ```
 
 

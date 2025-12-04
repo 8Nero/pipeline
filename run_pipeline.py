@@ -23,8 +23,8 @@ def main():
     parser.add_argument('--probe', type=str, nargs='+', default=None,
                         choices=['ProbeA', 'ProbeB', 'ProbeC', 'ProbeD', 'ADC', 'adc', 'OneBox-ADC'])
     parser.add_argument('--debug', action='store_true')
-    parser.add_argument('--overwrite', type=str, default='all',
-                        choices=['all', 'skip-all', 'prompt'])
+    parser.add_argument('--overwrite', type=str, default='newer',
+                        choices=['all', 'skip-all', 'prompt', 'newer'])
     
     args = parser.parse_args()
     
