@@ -58,6 +58,7 @@ save_kwargs:
   n_jobs: 16
   chunk_duration: '2s'
   mp_context: 'spawn'               # for Windows; use 'fork' for macOS/Linux
+  overwrite: true
 ```
 
 2. **Run pipeline:**
@@ -73,7 +74,7 @@ python -m run_pipeline --config R:/remote_path/config.yaml
 python -m run_pipeline --probe ProbeA
 python -m run_pipeline --probe ProbeA ProbeB
 
-# Config file in fsmresfiles
+# If the config file is in fsmresfiles
 python -m run_pipeline --probe ProbeA --config_remote session1.yaml 
 
 # Concatenate ADC data (for synchronization ADC timestamps are always used)
