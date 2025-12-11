@@ -3,6 +3,9 @@ import argparse
 from pathlib import Path
 from loguru import logger
 
+import matplotlib
+matplotlib.use('Agg') # Switch non GUI backend for kilosort internal plotting
+
 from pipeline import (
     Probe,
     load_probes,
