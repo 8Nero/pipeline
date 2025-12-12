@@ -65,7 +65,7 @@ def main():
     save_adc_references(adc=probes.get('OneBox-ADC'), output_path=config['local_output'])
     
     synchronize_probes(
-        probes=neural_probes,
+        probes=probes,
         target='OneBox-ADC',
         spike_times=spike_times,
         output_path=config['local_output']
