@@ -49,7 +49,7 @@ session_name: "session_name"
 recording_paths:                    # OpenEphys session folders containing structure.oebin file
   - "/path/to/session1"
   - "/path/to/session2"
-local_output: "/local/disk"         # path to local SSD
+local_output: "/local/disk"         # path to local disk
 # Default parameters
 remote_output: "/remote/storage"    # path to fsmresfiles
 fs: 30000.0

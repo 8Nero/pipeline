@@ -1,8 +1,8 @@
 """
 Pipeline operations: loading, spike sorting, and synchronization.
 """
+import os
 import numpy as np
-import re
 import spikeinterface as si
 import spikeinterface.extractors as se
 from pathlib import Path
@@ -56,7 +56,7 @@ def concatenate_probes(
         neural_probes[name] = probe
         
         if target_fs and probe.concatenated is not None:
-            downsample_eeg(output_path / name, probe.concatenated, target_fs=target_fs)
+            downsample_eeg(output_path / name, probe.concatenated, target_fs=target_fs, **save_kwargs)
     
     logger.info(f"Concatenated {len(neural_probes)} neural probes")
     logger.info("=" * 60)
@@ -64,35 +64,38 @@ def concatenate_probes(
 
 
 def downsample_eeg(
-    probe_folder: Path,
+    output_folder: Path,
     rec: si.BaseRecording,
     target_fs: int = 1250,
-    n_jobs: int = 8,
-    chunk_duration: str = '1s'
+    verbose: bool = True,
+    overwrite: bool = False,
+    **job_kwargs
 ) -> Optional[si.BaseRecording]:
-    eeg_dir = probe_folder / 'eeg'
-    eeg_file = eeg_dir / 'traces_cached_seg0.raw'
+    eeg_file = output_folder / 'eeg.dat'
     
     if eeg_file.exists():
-        logger.info(f"  EEG exists, skipping")
-        return si.load(eeg_dir)
+        if overwrite:
+            logger.info(f"  {eeg_file} file exists, deleting")
+            os.remove(eeg_file)
+        else:
+            logger.info(f"  {eeg_file} file exists, loading")
+            return si.load(eeg_file)
     
     fs = rec.get_sampling_frequency()
     decimation_factor = int(fs / target_fs)
     
     logger.info(f"  Downsampling: {fs:.0f}Hz -> {fs/decimation_factor:.0f}Hz (factor={decimation_factor})")
-    
     dec_rec = DecimatedRecording(rec, decimation_factor)
-    saved = dec_rec.save(
-        format='binary',
-        folder=eeg_dir,
-        n_jobs=n_jobs,
-        chunk_duration=chunk_duration,
-        overwrite=True
-    )
+    log_recording(dec_rec, "  EEG")
     
-    log_recording(saved, "  EEG")
-    return saved
+    si.write_binary_recording(
+        recording=dec_rec,
+        file_paths=eeg_file,
+        add_file_extension=False,
+        verbose=verbose,
+        **job_kwargs)
+    
+    return dec_rec
 
 
 def probe_to_kilosort(probe) -> dict:

@@ -54,7 +54,7 @@ Thumbs.db
 *.dat
 *.bin
 
-
+# GitHub and Claude folders
 .github/
 .claude/
 
@@ -65,3 +65,6 @@ CLAUDE.md
 
 # Jupyter Notebooks
 *.ipynb
+
+test.py
+temp/
