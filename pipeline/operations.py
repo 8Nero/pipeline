@@ -13,7 +13,6 @@ from kilosort import run_kilosort, DEFAULT_SETTINGS
 
 from .probe import Probe, interpolate
 from .decimation import DecimatedRecording
-from .utils import log_recording
 
 
 def load_probes(session_paths: list[str], probe_names: list[str]) -> dict[str, Probe]:
@@ -69,30 +68,52 @@ def downsample_eeg(
     target_fs: int = 1250,
     n_jobs: int = 8,
     chunk_duration: str = '1s'
-) -> Optional[si.BaseRecording]:
+) -> Optional[Path]:
+    """Downsample recording and save as raw .dat file (int16, no metadata).
+    
+    Args:
+        probe_folder: Output folder for probe
+        rec: SpikeInterface recording to downsample
+        target_fs: Target sampling rate (Hz)
+        n_jobs: Number of parallel jobs for writing
+        chunk_duration: Chunk size for parallel processing
+    
+    Returns:
+        Path to saved .dat file, or None if already exists
+    """
     eeg_dir = probe_folder / 'eeg'
-    eeg_file = eeg_dir / 'traces_cached_seg0.raw'
+    eeg_file = eeg_dir / 'eeg.dat'
     
     if eeg_file.exists():
         logger.info(f"  EEG exists, skipping")
-        return si.load(eeg_dir)
+        return eeg_file
+    
+    eeg_dir.mkdir(parents=True, exist_ok=True)
     
     fs = rec.get_sampling_frequency()
     decimation_factor = int(fs / target_fs)
+    actual_fs = fs / decimation_factor
     
-    logger.info(f"  Downsampling: {fs:.0f}Hz -> {fs/decimation_factor:.0f}Hz (factor={decimation_factor})")
+    logger.info(f"  Downsampling: {fs:.0f}Hz -> {actual_fs:.0f}Hz (factor={decimation_factor})")
     
     dec_rec = DecimatedRecording(rec, decimation_factor)
-    saved = dec_rec.save(
-        format='binary',
-        folder=eeg_dir,
+    n_samples = dec_rec.get_num_samples()
+    n_channels = dec_rec.get_num_channels()
+    
+    # Write to raw binary file using SpikeInterface parallel processing
+    si.write_binary_recording(
+        dec_rec,
+        file_paths=eeg_file,
+        dtype='int16',
         n_jobs=n_jobs,
-        chunk_duration=chunk_duration,
-        overwrite=True
+        chunk_duration=chunk_duration
     )
     
-    log_recording(saved, "  EEG")
-    return saved
+    duration = n_samples / actual_fs
+    logger.info(f"  EEG saved: {n_channels} channels, {n_samples} samples, {duration:.1f}s @ {actual_fs:.0f}Hz")
+    logger.info(f"  File: {eeg_file}")
+    
+    return eeg_file
 
 
 def probe_to_kilosort(probe) -> dict:

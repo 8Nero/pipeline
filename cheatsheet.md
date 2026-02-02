@@ -67,6 +67,25 @@ adc_times = adc_samples / adc.fs
 
 ## Usage
 
+### Downsampling EEG
+
+```python
+from pipeline import Probe
+from pipeline.operations import downsample_eeg
+
+probe = Probe('ProbeA')
+probe.load_from_sessions(session_paths)
+probe.concatenate(output_path, save_kwargs)
+
+# Downsample concatenated recording to 1250 Hz
+eeg_path = downsample_eeg(
+    probe_folder=output_path / 'ProbeA',
+    rec=probe.concatenated,
+    target_fs=1250  # default
+)
+# Output: {probe_folder}/eeg/eeg.dat (raw int16 binary)
+```
+
 ### Full pipeline
 
 ```bash

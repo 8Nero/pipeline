@@ -182,17 +182,12 @@ class Probe:
                 log_fn(self_local, f"  Session {session_idx} self_local (aligned)")
                 log_fn(target_local, f"  Session {session_idx} target_local (aligned)")
             
-            overlap = min(self._get_session_length(session_idx, mode), target._get_session_length(session_idx, mode))
-            logger.debug(f"  Session {session_idx}: overlap={overlap}")
-            
-            self_local = self_local[self_local <= overlap]
-            target_local = target_local[target_local <= overlap]
-            
             min_len = min(len(self_local), len(target_local))
             if min_len == 0:
                 logger.warning(f"  Session {session_idx}: No overlapping events")
                 continue
             
+            logger.debug(f"  Truncating past {min_len}")
             self_local = self_local[:min_len]
             target_local = target_local[:min_len]
             
@@ -202,7 +197,7 @@ class Probe:
             self_values.append(self_global)
             target_values.append(target_global)
             
-            log_fn(self_global, f"  Session {session_idx} self_global ({min_len} anchors)")
+            log_fn(self_global, f"  Session {session_idx} self_global")
             log_fn(target_global, f"  Session {session_idx} target_global")
         
         self.sync_map = np.column_stack([np.concatenate(self_values), np.concatenate(target_values)])
