@@ -63,7 +63,7 @@ class Probe:
             event_paths = self._find_timestamp_file(path, 'events')
             cont_paths = self._find_timestamp_file(path, 'continuous')
             for event_path, cont_path in zip(event_paths, cont_paths):
-                logger.debug(f"    Loading timestamps from {event_path.relative_to(path)} and {cont_path.relative_to(path)}")
+                logger.debug(f"    Loading time references from {event_path.relative_to(path)} and {cont_path.relative_to(path)}")
                 self._load_session_data(str(event_path), str(cont_path))
     
     def _find_timestamp_file(self, session_path: Path, folder: str) -> Optional[str]:
@@ -182,17 +182,12 @@ class Probe:
                 log_fn(self_local, f"  Session {session_idx} self_local (aligned)")
                 log_fn(target_local, f"  Session {session_idx} target_local (aligned)")
             
-            overlap = min(self._get_session_length(session_idx, mode), target._get_session_length(session_idx, mode))
-            logger.debug(f"  Session {session_idx}: overlap={overlap}")
-            
-            self_local = self_local[self_local <= overlap]
-            target_local = target_local[target_local <= overlap]
-            
             min_len = min(len(self_local), len(target_local))
             if min_len == 0:
                 logger.warning(f"  Session {session_idx}: No overlapping events")
                 continue
             
+            logger.debug(f"  Truncating past {min_len}")
             self_local = self_local[:min_len]
             target_local = target_local[:min_len]
             
@@ -202,7 +197,7 @@ class Probe:
             self_values.append(self_global)
             target_values.append(target_global)
             
-            log_fn(self_global, f"  Session {session_idx} self_global ({min_len} anchors)")
+            log_fn(self_global, f"  Session {session_idx} self_global")
             log_fn(target_global, f"  Session {session_idx} target_global")
         
         self.sync_map = np.column_stack([np.concatenate(self_values), np.concatenate(target_values)])

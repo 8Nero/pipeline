@@ -15,7 +15,6 @@ from .probe import Probe, interpolate
 from .decimation import DecimatedRecording
 from .utils import log_recording
 
-
 def load_probes(session_paths: list[str], probe_names: list[str]) -> dict[str, Probe]:
     """Load probes from session paths."""
     logger.info("LOADING PROBES")
@@ -83,8 +82,9 @@ def downsample_eeg(
     
     fs = rec.get_sampling_frequency()
     decimation_factor = int(fs / target_fs)
+    actual_fs = fs / decimation_factor
     
-    logger.info(f"  Downsampling: {fs:.0f}Hz -> {fs/decimation_factor:.0f}Hz (factor={decimation_factor})")
+    logger.info(f"  Downsampling: {fs:.0f}Hz -> {actual_fs:.0f}Hz (factor={decimation_factor})")
     dec_rec = DecimatedRecording(rec, decimation_factor)
     log_recording(dec_rec, "  EEG")
     
