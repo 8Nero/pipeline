@@ -63,7 +63,7 @@ class Probe:
             event_paths = self._find_timestamp_file(path, 'events')
             cont_paths = self._find_timestamp_file(path, 'continuous')
             for event_path, cont_path in zip(event_paths, cont_paths):
-                logger.debug(f"    Loading timestamps from {event_path.relative_to(path)} and {cont_path.relative_to(path)}")
+                logger.debug(f"    Loading time references from {event_path.relative_to(path)} and {cont_path.relative_to(path)}")
                 self._load_session_data(str(event_path), str(cont_path))
     
     def _find_timestamp_file(self, session_path: Path, folder: str) -> Optional[str]:
