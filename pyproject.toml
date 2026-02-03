@@ -15,10 +15,18 @@ dependencies = [
     "loguru>=0.7.0",
     "spikeinterface[full]>=0.101.0",
     "probeinterface>=0.2.21",
-    "kilosort>=4.0.30",
-    "torch>=2.0",
     "pynapple>=0.9.0",
 ]
+
+[project.optional-dependencies]
+full = [
+    "kilosort>=4.0.30",
+    "torch>=2.0",
+]
+
+[project.scripts]
+pipeline-run = "pipeline.run_script:main"
+gen-xml = "pipeline.xml_script:main"
 
 [build-system]
 requires = ["hatchling"]

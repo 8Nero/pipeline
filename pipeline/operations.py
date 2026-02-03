@@ -9,7 +9,13 @@ from pathlib import Path
 from loguru import logger
 from typing import Optional
 
-from kilosort import run_kilosort, DEFAULT_SETTINGS
+try:
+    from kilosort import run_kilosort, DEFAULT_SETTINGS
+    KILOSORT_AVAILABLE = True
+except ImportError:
+    KILOSORT_AVAILABLE = False
+    DEFAULT_SETTINGS = {}
+    run_kilosort = None
 
 from .probe import Probe, interpolate
 from .decimation import DecimatedRecording
@@ -115,6 +121,11 @@ def run_kilosort4(
     custom_settings: Optional[dict] = None
 ) -> dict[str, np.ndarray]:
     """Run Kilosort4 on concatenated probe recordings."""
+    if not KILOSORT_AVAILABLE:
+        logger.error("Kilosort4 is not installed. Cannot run spike sorting.")
+        logger.error("Please install using `uv pip install pipeline[full]` or manually install kilosort and torch.")
+        raise ImportError("Kilosort4 not installed")
+
     logger.info("=" * 60)
     logger.info("RUNNING KILOSORT4")
     

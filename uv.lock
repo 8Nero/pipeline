@@ -767,27 +767,32 @@ name = "pipeline"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "kilosort" },
     { name = "loguru" },
     { name = "numpy" },
     { name = "probeinterface" },
     { name = "pynapple" },
     { name = "pyyaml" },
     { name = "spikeinterface", extra = ["full"] },
+]
+
+[package.optional-dependencies]
+full = [
+    { name = "kilosort" },
     { name = "torch" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "kilosort", specifier = ">=4.0.30" },
+    { name = "kilosort", marker = "extra == 'full'", specifier = ">=4.0.30" },
     { name = "loguru", specifier = ">=0.7.0" },
     { name = "numpy", specifier = ">=2.3" },
     { name = "probeinterface", specifier = ">=0.2.21" },
     { name = "pynapple", specifier = ">=0.9.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "spikeinterface", extras = ["full"], specifier = ">=0.101.0" },
-    { name = "torch", specifier = ">=2.0", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torch", marker = "extra == 'full'", specifier = ">=2.0", index = "https://download.pytorch.org/whl/cu128" },
 ]
+provides-extras = ["full"]
 
 [[package]]
 name = "platformdirs"
