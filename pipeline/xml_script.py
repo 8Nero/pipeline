@@ -5,6 +5,7 @@ from xml.dom import minidom
 import spikeinterface.extractors as se
 
 def cmap(shank_id):
+    shank_id = int(shank_id)
     if shank_id == 0:
         return "#5081eb"
     elif shank_id == 1:
