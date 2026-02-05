@@ -27,6 +27,7 @@ full = [
 [project.scripts]
 pipeline-run = "pipeline.run_script:main"
 pipeline-gen_xml = "pipeline.xml_script:main"
+gen_xml = "pipeline.gen_xml:main"
 
 [build-system]
 requires = ["hatchling"]
