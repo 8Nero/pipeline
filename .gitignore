@@ -63,8 +63,4 @@ docs/
 tmp/
 CLAUDE.md
 
-# Jupyter Notebooks
-*.ipynb
-
-test.py
 temp/
