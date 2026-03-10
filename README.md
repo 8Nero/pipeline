@@ -24,7 +24,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 ```bash
 git clone https://github.com/8Nero/pipeline.git
 cd pipeline
-uv sync
+uv sync --extra full
 ```
 
 ### 3. Activate environment
