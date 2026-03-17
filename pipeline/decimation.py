@@ -42,6 +42,11 @@ class DecimatedRecording(BaseRecording):
         
         for segment in parent_recording._recording_segments:
             self.add_recording_segment(DecimatedRecordingSegment(segment, self._factor))
+
+        self._kwargs = {
+            "parent_recording": parent_recording,
+            "decimation_factor": decimation_factor,
+        }
     
     def __repr__(self):
         return f"DecimatedRecording({self._parent}, factor={self._factor})"

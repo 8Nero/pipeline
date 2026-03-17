@@ -2,12 +2,16 @@ import re
 import numpy as np
 import spikeinterface as si
 import spikeinterface.extractors as se
+from probeinterface.plotting import plot_probe
+
 from scipy.interpolate import make_interp_spline
 from scipy.signal import find_peaks
 from pathlib import Path
 from loguru import logger
 from typing import Optional, Literal
 from dataclasses import dataclass
+import matplotlib.pyplot as plt
+
 
 from .utils import log_recording, log_intervals, log_samples, log_timestamps
 
@@ -206,15 +210,19 @@ class Probe:
         log_fn(self.sync_map[:, 1], f"  sync_map target")
         return self.sync_map
     
-    def concatenate(self, output_path: Path, save_kwargs: dict, force: bool = False) -> si.BaseRecording:
-        concat_dir = output_path / self.name / 'concat'
+    def concatenate(self, output_path: str,
+                    verbose: bool = True,
+                    overwrite: bool = False,
+                    **job_kwargs
+                    ) -> si.BinaryFolderRecording:
+        concat_dir = Path(output_path) / self.name / 'concat'
         bin_path = concat_dir / 'traces_cached_seg0.raw'
         
-        if bin_path.exists() and not force:
+        if bin_path.exists() and not overwrite:
             logger.info(f"{self.name}: Loading existing from {concat_dir}")
-            self.concatenated = si.load(concat_dir)
-            log_recording(self.concatenated, self.name)
-            return self.concatenated
+            concatenated = si.load(concat_dir)
+            log_recording(concatenated, self.name)
+            return concatenated
         
         if len(self.recordings) == 0:
             raise ValueError(f"{self.name}: No recordings loaded")
@@ -232,11 +240,37 @@ class Probe:
         
         concat_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"{self.name}: Saving to {concat_dir}")
-        self.concatenated = concat_rec.save(folder=concat_dir, **save_kwargs)
-        
-        log_recording(self.concatenated, f"{self.name} concatenated")
-        return self.concatenated
+        concatenated = concat_rec.save(folder=concat_dir, verbose=verbose, overwrite=overwrite, **job_kwargs)
+        log_recording(concatenated, f"{self.name} concatenated")
+        return concatenated
     
+    def save_geometry(self, base_folder: str) -> None:
+        """Save probe geometry as png."""
+        output_file = Path(base_folder) / 'probe_geometry.png'
+        logger.info(f"{self.name}: Saving probe geometry to {output_file}")
+
+        if output_file.exists():
+            logger.info(f"Probe geometry figure already exists at {output_file}, skipping")
+            return
+        
+        fig, ax = plt.subplots(figsize=(5, 6))
+        positions = self.get_probe().to_dict()['contact_positions']
+        padding = 100
+        plot_probe(self.get_probe(), ax=ax,
+            xlims=(positions[:, 0].min() - padding, positions[:, 0].max() + padding),
+            ylims=(positions[:, 1].min() - padding, positions[:, 1].max() + padding)
+            )
+        plt.savefig(output_file, dpi=300)
+        plt.close(fig)
+
+        logger.info(f"{self.name}: Probe geometry saved to {output_file}")
+    
+    def get_probe(self):
+        if self.recordings:
+            return self.recordings[0].get_probe()
+        else:
+            raise ValueError(f"{self.name}: No recordings loaded, cannot get probe info")
+
     def __repr__(self):
         return f"Probe('{self.name}', sessions={len(self.sessions)})"
 
@@ -255,9 +289,10 @@ def align_edges(arr1: np.ndarray, arr2: np.ndarray, limit: int = 200) -> tuple[n
     
     if reset1 == reset2:
         return arr1, arr2
-    if reset1 < reset2:
+    elif reset1 < reset2:
         return arr1, arr2[reset2 - reset1:]
-    return arr1[reset1 - reset2:], arr2
+    else:
+        return arr1[reset1 - reset2:], arr2
 
 
 def interpolate(source: np.ndarray, sync_map: np.ndarray) -> np.ndarray:

@@ -7,4 +7,3 @@ if __name__ == '__main__':
     probe = si.load(probe_folder / "concat")
     print(probe)
     downsample_eeg(probe_folder = probe_folder, rec = probe)
-               

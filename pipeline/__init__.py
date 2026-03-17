@@ -1,3 +1,5 @@
+__version__ = "0.1.0"
+
 from .probe import Probe, interpolate, SessionData
 from .operations import (
     load_probes,

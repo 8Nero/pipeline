@@ -58,9 +58,6 @@ Thumbs.db
 .github/
 .claude/
 
-# Copilot instructions file
-docs/
+# Temporary files and testing scripts
 tmp/
-CLAUDE.md
-
-temp/
+testing/

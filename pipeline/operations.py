@@ -69,22 +69,23 @@ def concatenate_probes(
 
 
 def downsample_eeg(
-    output_folder: Path,
     rec: si.BaseRecording,
+    output_file: str | Path,
     target_fs: int = 1250,
     verbose: bool = True,
     overwrite: bool = False,
     **job_kwargs
-) -> Optional[si.BaseRecording]:
-    eeg_file = output_folder / 'eeg.dat'
-    
+) -> Optional[si.BaseRecording]:    
+    logger.info('=' * 50)
+
+    eeg_file = Path(output_file)
     if eeg_file.exists():
         if overwrite:
             logger.info(f"  {eeg_file} file exists, deleting")
             os.remove(eeg_file)
         else:
-            logger.info(f"  {eeg_file} file exists, loading")
-            return si.load(eeg_file)
+            logger.info(f"  {eeg_file} file already exists")
+            return
     
     fs = rec.get_sampling_frequency()
     decimation_factor = int(fs / target_fs)
@@ -93,15 +94,19 @@ def downsample_eeg(
     logger.info(f"  Downsampling: {fs:.0f}Hz -> {actual_fs:.0f}Hz (factor={decimation_factor})")
     dec_rec = DecimatedRecording(rec, decimation_factor)
     log_recording(dec_rec, "  EEG")
-    
+
     si.write_binary_recording(
         recording=dec_rec,
         file_paths=eeg_file,
         add_file_extension=False,
         verbose=verbose,
-        **job_kwargs)
+        n_jobs=1,
+        chunk_duration=5.0,
+        progress_bar=job_kwargs['progress_bar'],
+        )
     
-    return dec_rec
+    logger.info(f"  Saved downsampled EEG to {eeg_file}")
+    logger.info('=' * 50)
 
 
 def probe_to_kilosort(probe) -> dict:
