@@ -1,12 +1,5 @@
-"""
-Pipeline operations: loading, spike sorting, and synchronization.
-"""
-import os
-os.environ.setdefault('OPENBLAS_NUM_THREADS', '24')
-os.environ.setdefault('OMP_NUM_THREADS', '24')
-
 from .probe import Probe, plot_sync_drift
-from .utils import timed, probe_label, format_unit
+from .utils import timed, probe_label, format_unit, log_rec
 from .decimation import DecimatedRecording
 
 import numpy as np
@@ -49,7 +42,8 @@ def load_probes(session_paths: str | list[str], probe_filter = None) -> dict:
 def downsample(
     rec: si.BaseRecording,
     output_file: str | Path,
-    config: dict,):
+    config: dict,
+    ):
     log = logger.bind(stage="eeg")
 
     eeg_file = Path(output_file)
@@ -78,51 +72,58 @@ def downsample(
     log.info(f"Saved → {eeg_file}")
     
 
-def concatenate_probes(probes: dict, config: dict) -> None:
+def concatenate_probes(probes: dict, config: dict,) -> None:
     for name, probe in probes.items():
         with logger.contextualize(stage="concat", probe=probe_label(name)):
             output = Path(config['local_output']) / name
-            concat = probe.concat(
-                        output_dir=output / 'concat',
-                        verbose=config['verbose'],
-                        overwrite=config['overwrite'],
-                        **config['job_kwargs']
-                        )
-            if name == 'OneBox-ADC':
-                continue
-            
-            if config.get('target_fs', None) is not None:
-                downsample(concat, output / 'eeg.dat', config)
+            probe.concat(
+                output_dir=output / 'concat',
+                verbose=config['verbose'],
+                overwrite=config['overwrite'],
+                **config['job_kwargs']
+                )
+            probe.save_geometry(output / 'probe_geometry.png')
 
-def sort_probes(probes, config: dict) -> None:
-    for name, probe in probes.items():
-        if name == 'OneBox-ADC':
-            continue
+def downsample_probes(probe_paths: dict[str, Path],
+                      config: dict) -> None:
+    for name, probe_path in probe_paths.items():
+        with logger.contextualize(stage="eeg", probe=probe_label(name)):
+            rec = si.load(probe_path)
+            output_file = probe_path.parent / 'eeg.dat'
+            downsample(rec,
+                       output_file,
+                       config
+                       )
+
+def sort_probes(probe_paths: dict[str, Path],
+                config: dict
+                ) -> None:
+    for name, probe_path in probe_paths.items():
         with logger.contextualize(stage="sort", probe=probe_label(name)):
-            output = Path(config['local_output']) / name
-            settings = {'n_chan_bin': probe.get_num_channels(), 'fs': probe.get_sampling_frequency()}
-
-            binary_file = output / 'concat' / 'traces_cached_seg0.raw'
-            if not binary_file.exists():
-                raise FileNotFoundError(f"Binary file not found: {binary_file}")
-
+            output = Path(probe_path).parent
+            # Assuming probe_path is something like .../probe_name/concat/
+            # Save the results to .../probe_name/kilosort/
             results_dir = output / 'kilosort'
+            results_dir.mkdir(parents=True, exist_ok=True)
+
             if (results_dir/'spike_times.npy').exists() and not config['overwrite']:
                 logger.info("Results already exist, skipping")
                 continue
+            
+            rec = si.load(probe_path)
+            settings = {'n_chan_bin': rec.get_num_channels(), 'fs': rec.get_sampling_frequency()}
 
-            results_dir.mkdir(parents=True, exist_ok=True)
-            ks_probe = probe.get_probe(convert_to_kilosort=True)
-            probe.save_geometry(output / 'probe_geometry.png')
+            ks_probe = rec.get_probe(convert_to_kilosort=True)
 
-            logger.info(f"Saving Kilosort to: {results_dir}")
+            logger.info(f"Saving Kilosort results to: {results_dir}")
+            log_rec(rec)
 
             if config['per_shank']:
                 for shank_id in np.unique(ks_probe['kcoords']):
                     run_kilosort(
                         settings=settings,
                         probe=ks_probe,
-                        filename=binary_file,
+                        filename=probe_path / 'traces_cached_seg0.raw',
                         results_dir=results_dir,
                         device='cuda',
                         verbose_console=config['verbose'],
@@ -132,7 +133,7 @@ def sort_probes(probes, config: dict) -> None:
                 run_kilosort(
                     settings=settings,
                     probe=ks_probe,
-                    filename=binary_file,
+                    filename=probe_path / 'traces_cached_seg0.raw',
                     results_dir=results_dir,
                     device='cuda',
                     verbose_console=config['verbose'],

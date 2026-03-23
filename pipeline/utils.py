@@ -1,6 +1,7 @@
 """
 Utility functions for pipeline configuration and file handling.
 """
+from multiprocessing.util import debug
 import sys
 import yaml
 import shutil
@@ -180,13 +181,16 @@ def setup_pipeline(config_path: str, debug: bool = False) -> dict:
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f'{run_name}_{timestamp}.log'
     setup_logger(debug=debug, log_path=log_path)
-    logger.info('=' * 80)
 
+    logger.info('=' * 80)
     with logger.contextualize(stage="setup"):
+        
+        logger.debug(f"Config loaded from: {config_path}")
+        for k, v in config.items():
+            logger.debug(f"{k}: {v}")
         logger.info(f"Run:             {config['run_name']}")
         logger.info(f"Date:            {datetime.now():%Y-%m-%d %H:%M:%S}")
-        logger.info(f"Saving logs at:  {log_dir}")
-
+        logger.info(f"Log directory:   {log_dir}")
     logger.info('=' * 80)
     log_header()
     return config

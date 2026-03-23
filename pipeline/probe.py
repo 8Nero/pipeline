@@ -50,7 +50,7 @@ class Probe:
                     self.intervals['timestamp'].append((cont.timestamps[0], cont.timestamps[-1]))
                     self.intervals['sample_number'].append((cont.sample_numbers[0], cont.sample_numbers[-1]))
                     
-                    logger.info(f'    segment {i}:')
+                    logger.debug(f'    segment {i}:')
                     logger.debug(f'      cont timestamp interval: {cont.timestamps[0]:.3f}, {cont.timestamps[-1]:.3f}')
                     logger.debug(f'      cont sample_number interval: {cont.sample_numbers[0]}, {cont.sample_numbers[-1]}')
                     
@@ -58,7 +58,7 @@ class Probe:
                     event_df = event_df[event_df['stream_name'] == self.name][['sample_number', 'timestamp', 'state']]
                     ttl = event_df['timestamp'].to_numpy()
 
-                    logger.info(f"      event: {format_ttl(ttl)} ({format_duration(ttl[-1] - ttl[0])})")
+                    logger.debug(f"      event: {format_ttl(ttl)} ({format_duration(ttl[-1] - ttl[0])})")
                     self.events.append(event_df)
 
 
@@ -104,8 +104,8 @@ class Probe:
             self_offset, target_offset = 0.0, 0.0
 
             for i, (self_iv, target_iv) in enumerate(zip(self.intervals[mode], target_probe.intervals[mode])):
-                self_ts = self.events[i][mode].to_numpy() - self_iv[0]
-                target_ts = target_probe.events[i][mode].to_numpy() - target_iv[0]
+                self_ts = self.events[i][mode].to_numpy()
+                target_ts = target_probe.events[i][mode].to_numpy()
                 self_states = self.events[i]['state']
                 target_states = target_probe.events[i]['state']
 
@@ -129,8 +129,8 @@ class Probe:
                     logger.warning(f"  Truncating {len(self_ts)} vs {len(target_ts)} → {n} events")
                     self_ts, target_ts = self_ts[:n], target_ts[:n]
 
-                self_global = self_ts + self_offset
-                target_global = target_ts + target_offset
+                self_global = self_ts - self_iv[0] + self_offset
+                target_global = target_ts - target_iv[0] + target_offset
 
                 logger.info(f"  source global TTL : {format_ttl(self_global)} ({format_duration(self_global[-1] - self_global[0])})")
                 logger.info(f"  target global TTL : {format_ttl(target_global)} ({format_duration(target_global[-1] - target_global[0])})")
@@ -182,9 +182,8 @@ class Probe:
 
     def save_geometry(self, output_file: str) -> None:
         """Save probe geometry as png."""
-        log = logger.bind(stage="geo", probe=probe_label(self.name))
         if Path(output_file).exists():
-            log.info(f"Geometry already exists at {output_file}")
+            logger.info(f"Geometry already exists at {output_file}")
             return
         
         fig, ax = plt.subplots(figsize=(5, 6))
@@ -196,7 +195,7 @@ class Probe:
             )
         plt.savefig(output_file, dpi=300)
         plt.close(fig)
-        log.info(f"Saved geometry \u2192 {output_file}")
+        logger.info(f"Saved probe geometry \u2192 {output_file}")
     
     def get_probe(self, convert_to_kilosort: bool = False):
         """Return either ProbeInterface Probe or Kilosort-compatible dict."""
@@ -228,14 +227,27 @@ def detect_reset(events: np.ndarray, limit: int) -> int:
     """Detect chirp reset point from interval minima."""
     diffs = np.diff(events[:limit])
     minima = find_peaks(-diffs)[0]
-    return minima[0] + 1 if len(minima) > 0 else 0
+    return minima[0] + 1
 
-
-def align_edges(arr1: np.ndarray, arr2: np.ndarray, limit: int = 200) -> tuple[np.ndarray, np.ndarray]:
+def align_edges(source: np.ndarray, target: np.ndarray, limit: int = 100) -> tuple[np.ndarray, np.ndarray]:
     """Align two event arrays by trimming to matching chirp phase."""
-    reset1 = detect_reset(arr1, limit)
-    reset2 = detect_reset(arr2, limit)
-    return arr1[reset1:], arr2[reset2:]
+    source_reset = detect_reset(source, limit)
+    target_reset = detect_reset(target, limit)
+    logger.debug(f"  source reset index: source_reset. {source[source_reset]}")
+    logger.debug(f"  target reset index: target_reset. {target[target_reset]}")
+    
+    if source_reset > target_reset:
+        r = source_reset - target_reset
+        logger.info(f"Source leads target by {r} events, aligning by trimming source")
+        source_aligned, target_aligned = source[r:], target
+    elif target_reset > source_reset:
+        r = target_reset - source_reset
+        logger.info(f"Target leads source by {r} events, aligning by trimming target")
+        source_aligned, target_aligned = source, target[r:]
+    else:
+        source_aligned, target_aligned = source, target
+
+    return source_aligned, target_aligned
 
 def probe_to_kilosort(probe) -> dict:
     return {
