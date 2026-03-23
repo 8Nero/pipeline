@@ -41,7 +41,7 @@ def main():
     if 'OneBox-ADC' not in probe_names:
         probe_names.append('OneBox-ADC')
     
-    logger.info(f"Probes: {probe_names}")
+    logger.bind(stage="setup").info(f"Probes: {probe_names}")
     
     probes = load_probes(
         session_paths=config['recording_paths'],
@@ -76,9 +76,7 @@ def main():
         overwrite_mode=args.overwrite
     )
     
-    logger.info("=" * 60)
-    logger.success("PIPELINE COMPLETED")
-    logger.info("=" * 60)
+    logger.bind(stage="done").success("Pipeline completed")
 
 if __name__ == '__main__':
     main()

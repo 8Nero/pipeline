@@ -2,265 +2,186 @@
 Pipeline operations: loading, spike sorting, and synchronization.
 """
 import os
+os.environ.setdefault('OPENBLAS_NUM_THREADS', '24')
+os.environ.setdefault('OMP_NUM_THREADS', '24')
+
+from .probe import Probe, plot_sync_drift
+from .utils import timed, probe_label, format_unit
+from .decimation import DecimatedRecording
+
 import numpy as np
+from pathlib import Path
+
 import spikeinterface as si
 import spikeinterface.extractors as se
-from pathlib import Path
+
+from kilosort import run_kilosort
 from loguru import logger
-from typing import Optional
+from scipy.interpolate import make_interp_spline
 
-try:
-    from kilosort import run_kilosort, DEFAULT_SETTINGS
-    KILOSORT_AVAILABLE = True
-except ImportError:
-    KILOSORT_AVAILABLE = False
-    DEFAULT_SETTINGS = {}
-    run_kilosort = None
+def interpolate(spike_times_file, output_file, sync_map):
+    log = logger.bind(stage="interp")
+    spike_times = np.load(spike_times_file).squeeze()
+    spl = make_interp_spline(sync_map[:, 0], sync_map[:, 1], k=1)
+    adc_spike_times = spl(spike_times)
+    np.save(output_file, adc_spike_times)
+    log.info(f"{spike_times.shape[0]} spikes → {Path(output_file).name}")
 
-from .probe import Probe, interpolate
-from .decimation import DecimatedRecording
-from .utils import log_recording
-
-def load_probes(session_paths: list[str], probe_names: list[str]) -> dict[str, Probe]:
-    """Load probes from session paths."""
-    logger.info("LOADING PROBES")
-    logger.info(f"  Probes: {probe_names}")
-    logger.info(f"  Sessions: {len(session_paths)}")
-    
+def load_probes(session_paths: str | list[str], probe_filter = None) -> dict:
+    if not isinstance(session_paths, list):
+        session_paths = [session_paths]
     probes = {}
-    for name in probe_names:
-        fs = 30300.5 if name == 'OneBox-ADC' else 30000.0
-        probe = Probe(name=name, fs=fs)
-        probe.load_from_sessions(session_paths)
-        probes[name] = probe
-    
-    logger.info(f"Loaded {len(probes)} probes")
-    return probes
+    log = logger.bind(stage="load")
+    for session_path in session_paths:
+        stream_names, stream_ids = se.get_neo_streams('openephysbinary', session_path)
+        for stream_name, stream_id in zip(stream_names, stream_ids):
+            log.debug(f"Stream: {stream_name} (ID: {stream_id})")
+            if "SYNC" not in stream_name:
+                name = stream_name.split('.')[-1]
+                if probe_filter and name in probe_filter:
+                    continue
+                log.info(f"Found {probe_label(name)} (ID: {stream_id})")
+                probes[name] = Probe(name=name, stream_id=stream_id)
+                probes[name].load_sessions(session_paths)
+        return probes
 
-
-def concatenate_probes(
-    probes: dict[str, Probe],
-    output_path: Path,
-    save_kwargs: dict,
-    target_fs: Optional[int] = None
-) -> dict[str, Probe]:
-    """Concatenate all probe recordings and optionally downsample EEG."""
-    logger.info("=" * 60)
-    logger.info("CONCATENATING RECORDINGS")
-    
-    neural_probes = {}
-    
-    for idx, (name, probe) in enumerate(probes.items(), 1):
-        logger.info(f"[{idx}/{len(probes)}] {name}")
-        
-        probe.concatenate(output_path, save_kwargs)
-        
-        if name == 'OneBox-ADC':
-            continue
-        
-        neural_probes[name] = probe
-        
-        if target_fs and probe.concatenated is not None:
-            downsample_eeg(output_path / name, probe.concatenated, target_fs=target_fs, **save_kwargs)
-    
-    logger.info(f"Concatenated {len(neural_probes)} neural probes")
-    logger.info("=" * 60)
-    return neural_probes
-
-
-def downsample_eeg(
+@timed
+def downsample(
     rec: si.BaseRecording,
     output_file: str | Path,
-    target_fs: int = 1250,
-    verbose: bool = True,
-    overwrite: bool = False,
-    **job_kwargs
-) -> Optional[si.BaseRecording]:    
-    logger.info('=' * 50)
+    config: dict,):
+    log = logger.bind(stage="eeg")
 
     eeg_file = Path(output_file)
-    if eeg_file.exists():
-        if overwrite:
-            logger.info(f"  {eeg_file} file exists, deleting")
-            os.remove(eeg_file)
-        else:
-            logger.info(f"  {eeg_file} file already exists")
-            return
+    if eeg_file.exists() and not config['overwrite']:
+        log.info(f"EEG file already exists: {eeg_file}")
+        return
     
     fs = rec.get_sampling_frequency()
-    decimation_factor = int(fs / target_fs)
+    decimation_factor = int(fs / config['target_fs'])
     actual_fs = fs / decimation_factor
     
-    logger.info(f"  Downsampling: {fs:.0f}Hz -> {actual_fs:.0f}Hz (factor={decimation_factor})")
+    log.info(f"{format_unit(fs, 'Hz')} → {format_unit(actual_fs, 'Hz')} (factor={decimation_factor})")
     dec_rec = DecimatedRecording(rec, decimation_factor)
-    log_recording(dec_rec, "  EEG")
 
+    # No parallelization. write_binary_recording seems better than naive downsampling
     si.write_binary_recording(
         recording=dec_rec,
         file_paths=eeg_file,
         add_file_extension=False,
-        verbose=verbose,
+        verbose=config['verbose'],
         n_jobs=1,
         chunk_duration=5.0,
-        progress_bar=job_kwargs['progress_bar'],
+        progress_bar=config['job_kwargs']['progress_bar'],
         )
     
-    logger.info(f"  Saved downsampled EEG to {eeg_file}")
-    logger.info('=' * 50)
-
-
-def probe_to_kilosort(probe) -> dict:
-    return {
-        'chanMap': np.arange(probe.get_contact_count(), dtype=int),
-        'xc': probe.contact_positions[:, 0].astype('float32'),
-        'yc': probe.contact_positions[:, 1].astype('float32'),
-        'kcoords': probe.shank_ids.astype('float32'),
-        'n_chan': probe.get_contact_count(),
-    }
-
-
-def run_kilosort4(
-    probes: dict[str, Probe],
-    output_path: Path,
-    device: str = 'cuda',
-    custom_settings: Optional[dict] = None
-) -> dict[str, np.ndarray]:
-    """Run Kilosort4 on concatenated probe recordings."""
-    if not KILOSORT_AVAILABLE:
-        logger.error("Kilosort4 is not installed. Cannot run spike sorting.")
-        logger.error("Please install using `uv pip install pipeline[full]` or manually install kilosort and torch.")
-        raise ImportError("Kilosort4 not installed")
-
-    logger.info("=" * 60)
-    logger.info("RUNNING KILOSORT4")
+    log.info(f"Saved → {eeg_file}")
     
-    spike_times = {}
-    
-    for idx, (name, probe) in enumerate(probes.items(), 1):
-        logger.info(f"[{idx}/{len(probes)}] {name}")
-        
-        if probe.concatenated is None:
-            logger.warning(f"  No concatenated recording, skipping")
-            continue
-        
-        kilosort_dir = output_path / name / 'kilosort'
-        spike_file = kilosort_dir / 'spike_times.npy'
-        
-        if spike_file.exists():
-            spike_times[name] = np.load(spike_file, mmap_mode='r')
-            logger.info(f"  Loaded existing: {len(spike_times[name])} spikes")
-            continue
-        
-        kilosort_dir.mkdir(parents=True, exist_ok=True)
-        
-        rec = probe.concatenated
-        prb = rec.get_probe()
-        probe_dict = probe_to_kilosort(prb)
-        
-        binary_file = output_path / name / 'concat' / 'traces_cached_seg0.raw'
-        
-        settings = DEFAULT_SETTINGS.copy()
-        if custom_settings:
-            settings.update(custom_settings)
-        settings['n_chan_bin'] = rec.get_num_channels()
-        settings['fs'] = rec.get_sampling_frequency()
-        
-        logger.info(f"  Input: {binary_file}")
-        logger.info(f"  Output: {kilosort_dir}")
-        
-        try:
-            _ = run_kilosort(
-                settings=settings,
-                probe=probe_dict,
-                data_dtype='int16',
-                filename=str(binary_file),
-                results_dir=str(kilosort_dir),
-                device=device,
-                verbose_console=True
-            )
-            spike_times[name] = np.load(spike_file, mmap_mode='r')
-            logger.info(f"  Sorted: {len(spike_times[name])} spikes")
+
+def concatenate_probes(probes: dict, config: dict) -> None:
+    for name, probe in probes.items():
+        with logger.contextualize(stage="concat", probe=probe_label(name)):
+            output = Path(config['local_output']) / name
+            concat = probe.concat(
+                        output_dir=output / 'concat',
+                        verbose=config['verbose'],
+                        overwrite=config['overwrite'],
+                        **config['job_kwargs']
+                        )
+            if name == 'OneBox-ADC':
+                continue
             
-        except Exception as e:
-            logger.error(f"  Failed: {e}")
+            if config.get('target_fs', None) is not None:
+                downsample(concat, output / 'eeg.dat', config)
+
+def sort_probes(probes, config: dict) -> None:
+    for name, probe in probes.items():
+        if name == 'OneBox-ADC':
             continue
-    
-    logger.info("=" * 60)
-    return spike_times
+        with logger.contextualize(stage="sort", probe=probe_label(name)):
+            output = Path(config['local_output']) / name
+            settings = {'n_chan_bin': probe.get_num_channels(), 'fs': probe.get_sampling_frequency()}
 
+            binary_file = output / 'concat' / 'traces_cached_seg0.raw'
+            if not binary_file.exists():
+                raise FileNotFoundError(f"Binary file not found: {binary_file}")
 
-def save_adc_references(adc: Probe, output_path: Path) -> None:
-    """Save ADC sample-to-timestamp mapping."""
-    logger.info("SAVING ADC REFERENCES")
-    
-    adc.build_global_references(mode='samples')
-    adc.build_global_references(mode='timestamps')
-    
-    adc_global_samples = adc.get_global_events('samples')
-    adc_global_timestamps = adc.get_global_events('timestamps')
-    
-    adc_dir = output_path / adc.name
-    adc_dir.mkdir(parents=True, exist_ok=True)
-    np.save(adc_dir / "global_samples.npy", adc_global_samples)
-    np.save(adc_dir / "global_timestamps.npy", adc_global_timestamps)
-    logger.info(f"  Saved ADC references to {adc_dir}")
+            results_dir = output / 'kilosort'
+            if (results_dir/'spike_times.npy').exists() and not config['overwrite']:
+                logger.info("Results already exist, skipping")
+                continue
 
+            results_dir.mkdir(parents=True, exist_ok=True)
+            ks_probe = probe.get_probe(convert_to_kilosort=True)
+            probe.save_geometry(output / 'probe_geometry.png')
+
+            logger.info(f"Saving Kilosort to: {results_dir}")
+
+            if config['per_shank']:
+                for shank_id in np.unique(ks_probe['kcoords']):
+                    run_kilosort(
+                        settings=settings,
+                        probe=ks_probe,
+                        filename=binary_file,
+                        results_dir=results_dir,
+                        device='cuda',
+                        verbose_console=config['verbose'],
+                        shank_idx=int(shank_id),
+                    )
+            else:
+                run_kilosort(
+                    settings=settings,
+                    probe=ks_probe,
+                    filename=binary_file,
+                    results_dir=results_dir,
+                    device='cuda',
+                    verbose_console=config['verbose'],
+                )
 
 def synchronize_probes(
-    probes: dict[str, Probe],
-    target: str,
-    spike_times: dict[str, np.ndarray],
-    output_path: Path
-) -> dict[str, np.ndarray]:
-    """Synchronize probe spikes to target (ADC) reference frame."""
-    logger.info("=" * 60)
-    logger.info("SYNCHRONIZING")
+        probes: dict,
+        config: dict,
+        target: str = 'OneBox-ADC',
+        mode: str = 'timestamp'
+        ):
     
-    target_probe = probes.get(target)
-    if target_probe is None:
-        raise ValueError(f"Target probe '{target}' not found in probes dictionary.")
-    
-    target_probe.build_global_references(mode='samples')
-    synced_spikes = {}
-    
+    target_probe = probes[target]
     for name, probe in probes.items():
-        if name == target:
-            continue
-        
-        if name not in spike_times:
-            logger.warning(f"{name}: No spikes, skipping")
-            continue
-        
-        logger.info(f"{name}:")
-        
-        probe.build_global_references(mode='samples')
-        sync_map = probe.sync_to(target_probe, mode='samples')
-        
-        ks_spike_samples = spike_times[name].flatten()
-        logger.info(f"  Input: {len(ks_spike_samples)} spikes, samples [{ks_spike_samples[0]} - {ks_spike_samples[-1]}]")
-        
-        # Probe samples -> ADC samples -> ADC timestamps
-        adc_spike_samples = interpolate(ks_spike_samples, sync_map)
-        
-        # Check if adc_spike_samples are sorted
-        unsorted_mask = adc_spike_samples[:-1] > adc_spike_samples[1:]
-        if np.any(unsorted_mask):
-            unsorted_indices = np.where(unsorted_mask)[0]
-            logger.warning(f"  adc_spike_samples not sorted at {len(unsorted_indices)} indices: {unsorted_indices[:10]}{'...' if len(unsorted_indices) > 10 else ''}")
-        
-        adc_spike_times = adc_spike_samples / target_probe.fs
-        logger.info(f"  Output: [{adc_spike_times[0]:.3f} - {adc_spike_times[-1]:.3f}]s")
-        
-        save_dir = output_path / name
-        save_dir.mkdir(parents=True, exist_ok=True)
-        
-        np.save(save_dir / "sync_map.npy", sync_map)
-        np.save(save_dir / "adc_spike_samples.npy", adc_spike_samples)
-        np.save(save_dir / "adc_spike_times.npy", adc_spike_times)
-        
-        synced_spikes[name] = adc_spike_times
-        logger.info(f"  Saved to {save_dir}")
+        with logger.contextualize(stage="sync", probe=probe_label(name)):
+            output_dir = Path(config['local_output']) / name
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            if name == 'OneBox-ADC':
+                logger.info('-' * 80)
+                logger.info('ADC samples → timestamps sync map')
+                sync_map = (probe.build_global_references(mode='sample_number'),
+                            probe.build_global_references(mode='timestamp'),)
+                np.save(output_dir / "sync_map.npy", np.column_stack(sync_map))
+                logger.info(f"Saved: {output_dir / 'sync_map.npy'}")
+                continue
 
-    logger.info("SYNCHRONIZATION COMPLETED")
-    logger.info("=" * 60)
-    return synced_spikes
+            sync_map = probe.sync_to(target_probe, mode=mode)
+            np.save(output_dir / "sync_map.npy", sync_map)
+            logger.info(f"Saved sync map: {output_dir / 'sync_map.npy'}")
+            _, _ = plot_sync_drift(prb=probe, target=target_probe, save_path=output_dir / "sync_drift.png")
+            logger.info(f"Saved sync drift plot: {output_dir / 'sync_drift.png'}")
+
+            if config['per_shank']:
+                prb = probe.get_probe(convert_to_kilosort=True)
+                for shank_id in np.unique(prb['kcoords']):
+                    shank_id = int(shank_id)
+                    spike_times_file = output_dir / 'kilosort' / f'shank_{shank_id}' / 'spike_times.npy'
+                    if spike_times_file.exists():
+                        interpolate(spike_times_file,
+                                    output_file=output_dir / f'adc_spike_times_{shank_id}.npy',
+                                    sync_map=sync_map)
+                    else:
+                        logger.bind(stage="interp").warning(f"Couldn't find kilosort results: {spike_times_file}")
+            else:
+                spike_times_file = output_dir / 'kilosort' / 'spike_times.npy'
+                if spike_times_file.exists():
+                    interpolate(spike_times_file,
+                                output_file=output_dir / 'adc_spike_times.npy',
+                                sync_map=sync_map)
+                else:
+                    logger.bind(stage="interp").warning(f"Couldn't find kilosort results: {spike_times_file}")
