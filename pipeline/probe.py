@@ -157,27 +157,24 @@ class Probe:
         **job_kwargs
     ) -> si.BaseRecording:
         """Concatenate all recordings."""
-        with logger.contextualize(stage="concat", probe=probe_label(self.name)):
-            if (Path(output_dir) / 'traces_cached_seg0.raw').exists() and not overwrite:
-                logger.info(f"Already exists at {output_dir}, loading")
-                rec = si.load(output_dir)
-                logger.debug(str(rec))
-                log_rec(rec)
-                return rec
-
-            if len(self.recordings) == 0:
-                raise ValueError("No sessions to concatenate.")
-
-            logger.info(f"{len(self.recordings)} recordings \u2192 {output_dir}")
-
-            rec = si.concatenate_recordings(self.recordings)
-            log_rec(rec)
+        logger.info(f"Concatenating {len(self.recordings)} recordings → {output_dir}")
+        if (Path(output_dir) / 'traces_cached_seg0.raw').exists() and not overwrite:
+            logger.info(f"Already exists at {output_dir}, loading")
+            rec = si.load(output_dir)
             logger.debug(str(rec))
-            concat = rec.save(folder=output_dir,
-                        verbose=verbose,
-                        overwrite=overwrite,
-                        **job_kwargs)
-            
+            log_rec(rec)
+            return rec
+
+        if len(self.recordings) == 0:
+            raise ValueError("No sessions to concatenate.")
+        
+        rec = si.concatenate_recordings(self.recordings)
+        log_rec(rec)
+        logger.debug(str(rec))
+        concat = rec.save(folder=output_dir,
+                    verbose=verbose,
+                    overwrite=overwrite,
+                    **job_kwargs)
         return concat
 
     def save_geometry(self, output_file: str) -> None:
@@ -235,7 +232,7 @@ def align_edges(source: np.ndarray, target: np.ndarray, limit: int = 100) -> tup
     target_reset = detect_reset(target, limit)
     logger.debug(f"  source reset index: source_reset. {source[source_reset]}")
     logger.debug(f"  target reset index: target_reset. {target[target_reset]}")
-    
+
     if source_reset > target_reset:
         r = source_reset - target_reset
         logger.info(f"Source leads target by {r} events, aligning by trimming source")

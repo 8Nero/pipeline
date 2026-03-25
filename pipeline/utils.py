@@ -1,7 +1,3 @@
-"""
-Utility functions for pipeline configuration and file handling.
-"""
-from multiprocessing.util import debug
 import sys
 import yaml
 import shutil
@@ -90,7 +86,7 @@ def log_rec(rec: si.BaseRecording):
     n_samples = rec.get_total_samples()
     logger.info(
         f"  binary: {rec.get_num_segments()} recording(s) · "
-        f"{rec.get_num_channels()} ch ({format_unit(rec.get_sampling_frequency(), 'Hz')}) · "
+        f"{rec.get_num_channels()} ch · {format_unit(rec.get_sampling_frequency(), 'Hz')} · "
         f"{n_samples} samples ({format_size(rec.get_total_memory_size())}) · ({format_duration(rec.get_total_duration())})"
     )
 

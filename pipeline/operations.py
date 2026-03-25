@@ -1,4 +1,4 @@
-from .probe import Probe, plot_sync_drift
+from .probe import Probe, plot_sync_drift, probe_to_kilosort
 from .utils import timed, probe_label, format_unit, log_rec
 from .decimation import DecimatedRecording
 
@@ -82,12 +82,13 @@ def concatenate_probes(probes: dict, config: dict,) -> None:
                 overwrite=config['overwrite'],
                 **config['job_kwargs']
                 )
-            probe.save_geometry(output / 'probe_geometry.png')
+            if name != 'OneBox-ADC':
+                probe.save_geometry(output / 'probe_geometry.png')
 
 def downsample_probes(probe_paths: dict[str, Path],
                       config: dict) -> None:
     for name, probe_path in probe_paths.items():
-        with logger.contextualize(stage="eeg", probe=probe_label(name)):
+        with logger.contextualize(stage="downsample", probe=probe_label(name)):
             rec = si.load(probe_path)
             output_file = probe_path.parent / 'eeg.dat'
             downsample(rec,
@@ -99,7 +100,7 @@ def sort_probes(probe_paths: dict[str, Path],
                 config: dict
                 ) -> None:
     for name, probe_path in probe_paths.items():
-        with logger.contextualize(stage="sort", probe=probe_label(name)):
+        with logger.contextualize(stage="kilosort", probe=probe_label(name)):
             output = Path(probe_path).parent
             # Assuming probe_path is something like .../probe_name/concat/
             # Save the results to .../probe_name/kilosort/
@@ -111,12 +112,13 @@ def sort_probes(probe_paths: dict[str, Path],
                 continue
             
             rec = si.load(probe_path)
-            settings = {'n_chan_bin': rec.get_num_channels(), 'fs': rec.get_sampling_frequency()}
+            logger.info(f"Loaded concatenated recording: {probe_path}")
+            log_rec(rec)
 
-            ks_probe = rec.get_probe(convert_to_kilosort=True)
+            settings = {'n_chan_bin': rec.get_num_channels(), 'fs': rec.get_sampling_frequency()}
+            ks_probe = probe_to_kilosort(rec.get_probe())
 
             logger.info(f"Saving Kilosort results to: {results_dir}")
-            log_rec(rec)
 
             if config['per_shank']:
                 for shank_id in np.unique(ks_probe['kcoords']):
