@@ -168,6 +168,88 @@ def plot_template_shanks(cluster_id: int, unit_template: np.ndarray,
         return fig, axes
 
 
+def plot_shankwise_waveforms(cluster_id: int, waveforms: np.ndarray,
+                             unit_template: np.ndarray,
+                             contacts_df: pd.DataFrame,
+                             ms_before: float, ms_after: float,
+                             n_display: int = 200,
+                             save_path: Path | None = None, fs: float = 30000.0):
+    """Per-shank waveform overlay and peak-to-peak histogram on the best channel.
+
+    Top row: undersampled individual waveforms (thin, transparent) with mean overlay.
+    Bottom row: peak-to-peak amplitude distribution across all extracted waveforms.
+
+    Parameters
+    ----------
+    waveforms : (n_spikes, n_samples, n_channels) array
+        Raw waveform snippets extracted from the recording.
+    unit_template : (n_samples, n_channels) array
+        Zero-centred mean template, used to find the peak channel per shank.
+    """
+    ch_shanks = contacts_df['shank'].values
+    shanks = np.unique(ch_shanks)
+    time_ms = np.arange(-ms_before, ms_after, 1000 / fs)
+    n_samples = min(waveforms.shape[1], len(time_ms))
+    n_total = waveforms.shape[0]
+
+    fig, axes = plt.subplots(2, len(shanks),
+                             figsize=(5 * len(shanks), 8),
+                             gridspec_kw={'height_ratios': [2, 1]},
+                             squeeze=False)
+    fig.suptitle(f'Unit {cluster_id} — Per-Shank Waveforms ({n_total} extracted)')
+
+    if n_total > n_display:
+        rng = np.random.default_rng(42)
+        display_idx = rng.choice(n_total, n_display, replace=False)
+    else:
+        display_idx = np.arange(n_total)
+
+    for i, sid in enumerate(shanks):
+        mask = ch_shanks == sid
+        ch_indices = mask.nonzero()[0]
+
+        # Peak channel per shank from mean template
+        shank_template = unit_template[:, ch_indices]
+        ptp_mean = shank_template.max(axis=0) - shank_template.min(axis=0)
+        best_local = ptp_mean.argmax()
+        best_ch = ch_indices[best_local]
+        mean_ptp_val = ptp_mean[best_local]
+
+        # Waveform overlay
+        ax_wf = axes[0, i]
+        for idx in display_idx:
+            ax_wf.plot(time_ms[:n_samples], waveforms[idx, :n_samples, best_ch],
+                       color='C0', alpha=0.05, linewidth=0.5)
+        ax_wf.plot(time_ms[:n_samples], unit_template[:n_samples, best_ch],
+                   color='yellow', linewidth=1.5, label='mean')
+        ax_wf.set_title(f'Shank {sid} — Ch {best_ch}\nmean p2p = {mean_ptp_val:.1f} µV')
+        ax_wf.set_xlabel('Time (ms)')
+        ax_wf.set_ylabel('µV')
+        ax_wf.legend(fontsize=8)
+
+        # Amplitude histogram
+        ax_hist = axes[1, i]
+        ch_wfs = waveforms[:, :n_samples, best_ch]
+        all_ptp = ch_wfs.max(axis=1) - ch_wfs.min(axis=1)
+        median_ptp = np.median(all_ptp)
+        ax_hist.hist(all_ptp, bins=50, color='C0', alpha=0.7,
+                     edgecolor='white', linewidth=0.3)
+        ax_hist.axvline(median_ptp, color='cyan', linestyle='-',
+                        linewidth=1, label=f'median = {median_ptp:.1f}')
+        ax_hist.axvline(mean_ptp_val, color='yellow', linestyle='--',
+                        linewidth=1, label=f'template = {mean_ptp_val:.1f}')
+        ax_hist.set_xlabel('Peak-to-peak (µV)')
+        ax_hist.set_ylabel('Count')
+        ax_hist.legend(fontsize=8)
+
+    fig.tight_layout()
+    if save_path is not None:
+        fig.savefig(save_path / f'unit_{cluster_id}_shankwise_waveforms.png', dpi=320)
+        plt.close(fig)
+    else:
+        return fig, axes
+
+
 def plot_template_animation(cluster_id: int, unit_template: np.ndarray,
                             contacts_df: pd.DataFrame,
                             ms_before: float, ms_after: float,

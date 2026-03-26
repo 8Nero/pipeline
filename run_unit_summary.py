@@ -25,13 +25,13 @@ def run(probe_path: Path, skip_animation: bool = False):
     save_path = probe_path / 'unit_summary'
     save_path.mkdir(parents=True, exist_ok=True)
 
-    # ── Load probe channel information ──────────────────────────────
+    # LOAD PROBE CONTACTS 
     ch_pos = np.load(ks_output / 'channel_positions.npy')
     ch_shanks = np.load(ks_output / 'channel_shanks.npy').astype(int)
     contacts_df = pd.DataFrame(ch_pos, columns=['x', 'y'])
     contacts_df['shank'] = ch_shanks.astype(int)
 
-    # ── Load detected spike positions and good units ────────────────
+    # LOAD UNITS FROM KILOSORT OUTPUT
     unit_labels = pd.read_csv(ks_output / 'cluster_group.tsv', sep='\t', index_col=0)
     good_units = unit_labels[unit_labels['KSLabel'] == 'good'].index.values
     logger.info(f"Found {len(good_units)} good units")
@@ -45,26 +45,49 @@ def run(probe_path: Path, skip_animation: bool = False):
     units_df = spikes_df.groupby('cluster').agg(['median', 'min', 'max'])
     units_df.columns = ['_'.join(col) for col in units_df.columns]
 
-    # ── Load recording / sorting / postprocess ──────────────────────
-    rec = si.load(str(concat_path))
-    sorting = se.read_kilosort(ks_output).select_units(good_units)
-    fs = rec.get_sampling_frequency()
+    ### SORTING ANALYZER
+    fs = 30000.0
 
-    pp = si.load_sorting_analyzer(probe_path / 'postprocess')
+    processing_path = probe_path / 'processing'
+    if processing_path.exists():
+        logger.info("Loading postprocess from processing folder")
+        pp = si.load_sorting_analyzer(probe_path / 'postprocess')
+    else:
+        ## Load recording and sorting objects
+        rec = si.load(str(concat_path))
+        sorting = se.read_kilosort(ks_output).select_units(good_units)
+
+        pp = si.create_sorting_analyzer(
+            sorting=sorting,
+            recording=rec,
+            sparse=False,
+            folder=probe_path / 'postprocess',
+            format='binary_folder',
+            overwrite=False
+        )
+
+        job_kwargs = dict(n_jobs=-1, chunk_duration="1s", progress_bar=True)
+
+        compute_dict = {
+            'random_spikes': {'method': 'uniform', 'max_spikes_per_unit': 10000},
+            'templates': {'operators': ["average", "std"]}
+        }
+
+        pp.compute(compute_dict, **job_kwargs)
+
     template_ext = pp.get_extension('templates')
     ms_before = template_ext.params['ms_before']
     ms_after = template_ext.params['ms_after']
 
-    # ── Style ───────────────────────────────────────────────────────
+    # Color scheme
     plt.style.use('dark_background')
     heatmap = cmap.Colormap('seaborn:vlag').to_matplotlib()
     distinct_colors = cmap.Colormap('tab20').to_matplotlib()
 
-    # ── Overview: all-unit positions ────────────────────────────────
     plot_unit_positions(units_df, ch_pos, colormap=distinct_colors, save_path=probe_path)
     logger.success("Saved unit positions overview")
 
-    # ── Per-unit plots ──────────────────────────────────────────────
+    # Per-unit plots
     for idx, cluster_id in enumerate(good_units):
         logger.info(f"[{idx + 1}/{len(good_units)}] Unit {cluster_id}")
 
