@@ -1,6 +1,3 @@
-"""
-On-the-fly decimation for SpikeInterface recordings.
-"""
 from spikeinterface.core import BaseRecording, BaseRecordingSegment
 
 

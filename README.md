@@ -1,10 +1,9 @@
 # Kilosort Pipeline
 
-Automated spike sorting pipeline for OpenEphys recordings with [Kilosort4](https://github.com/MouseLand/Kilosort) and [SpikeInterface](https://github.com/SpikeInterface/spikeinterface).
+Automated spike sorting pipeline for OpenEphys multi-probe recordings with [Kilosort4](https://github.com/MouseLand/Kilosort) and [SpikeInterface](https://github.com/SpikeInterface/spikeinterface).
+
 
 ## Installation
-
-[uv](https://github.com/astral-sh/uv) seems to be simpler and faster alternative to conda. ([SpikeInterface's tips on uv](https://github.com/SpikeInterface/spikeinterface/blob/main/installation_tips/README.md))
 
 ### 1. Install uv
 
@@ -45,65 +44,65 @@ source .venv/bin/activate
 1. **Create `config.yaml`:**
 
 ```yaml
-session_name: "session_name"
-recording_paths:                    # OpenEphys session folders containing structure.oebin file
+run_name: "my_session"
+session_paths:                      # OpenEphys session folders containing structure.oebin file
   - "/path/to/session1"
   - "/path/to/session2"
-local_output: "/local/disk"         # path to local disk
+local_output: "/local/disk"         # Path to local disk
+remote_output: "/remote/storage"    # Path to fsmresfiles
+per_shank: True                     # Run Kilosort per shank
+copy_mode: 'newer'                  # 'newer', 'prompt', 'all', 'skip-all'
 # Default parameters
-remote_output: "/remote/storage"    # path to fsmresfiles
-fs: 30000.0
 target_fs: 1250.0                   # EEG downsampling (Hz)
-save_kwargs:
-  n_jobs: 16
+verbose: True
+overwrite: False
+job_kwargs:
+  n_jobs: 4
   chunk_duration: '2s'
-  mp_context: 'spawn'               # for Windows; use 'fork' for macOS/Linux
-  overwrite: true
+  progress_bar: True
+  mp_context: 'spawn'               # For Windows; use 'fork' for macOS/Linux
 ```
 
 2. **Run pipeline:**
 
 ```bash
-# Process all probes
-python -m run_pipeline
+# Process all probes with default config.yaml
+python run_script.py
 
-# Process from common config
-python -m run_pipeline --config R:/remote_path/config.yaml
+# Use a different config file
+python run_script.py --config /path/to/config.yaml
 
-# Process specific probe(s)
-python -m run_pipeline --probe ProbeA
-python -m run_pipeline --probe ProbeA ProbeB
-
-# If the config file is in fsmresfiles
-python -m run_pipeline --probe ProbeA --config_remote session1.yaml 
-
-# Concatenate ADC data (for synchronization ADC timestamps are always used)
-python -m run_pipeline --probe ProbeA ADC           
-
-# Overwrite options when copying to remote server
-python -m run_pipeline --overwrite newer            # Default: Only overwrite if local file is newer
-python -m run_pipeline --overwrite prompt           # Prompt before overwriting files
-python -m run_pipeline --overwrite skip-all         # Skip all existing files when copying to remote storage
-python -m run_pipeline --overwrite all              # Overwrite all existing files when copying to remote storage
+# Enable debug logging
+python run_script.py --debug
 ```
 
+The `copy_mode` config option controls how existing files are handled when copying to remote storage:
+- `newer` — Only overwrite if local file is newer (default)
+- `prompt` — Prompt before overwriting each file
+- `skip-all` — Skip all existing files
+- `all` — Overwrite all existing files
 
 ## Output Structure
 
 ```
-{local_output}/{session_name}/
-├── {session_name}_{timestamp}.log  # Timestamped log file
+{local_output}/{run_name}/
+├── logs/
+│   └── {run_name}_{timestamp}.log
 ├── ProbeA/
 │   ├── concat/
 │   │   ├── traces_cached_seg0.raw  # Concatenated binary file (int16)
 │   │   └── si_folder.json          # SpikeInterface metadata
-│   ├── eeg_data.dat                # Downsampled EEG (if target_fs set)
-│   ├── adc_spikes.npy              # Spike times in ADC timebase
-│   ├── timestamps_map.npy          # [N x 2] array of [probe_time, adc_time] pairs
+│   ├── eeg.dat                     # Downsampled EEG (if target_fs set)
+│   ├── probe_geometry.png          # Configurated probe plot
+│   ├── sync_map.npy                # [N x 2] array of [probe_time, adc_time] pairs
+│   ├── sync_drift.png              # Clock drift visualization
+│   ├── adc_spike_times.npy         # Spike times interpolated to ADC timebase
 │   └── kilosort/                   # Kilosort4 outputs
 │       ├── spike_times.npy
 │       ├── spike_clusters.npy
 │       └── ...
-└── ProbeB/
-    └── ...
+├── ProbeB/
+│   └── ...
+└── OneBox-ADC/
+    └── sync_map.npy                # ADC samples → timestamps mapping
 ```

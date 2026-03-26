@@ -1,12 +1,11 @@
 [project]
 name = "pipeline"
-version = "0.1.0"
-description = "Automated spike sorting pipeline for OpenEphys recordings using Kilosort4 and SpikeInterface"
+version = "0.2.0"
+description = "Automated spike sorting pipeline"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
 authors = [
-    { name = "Senzai Lab" }
+    { name = "Tuguldur" }
 ]
 
 dependencies = [
@@ -15,8 +14,7 @@ dependencies = [
     "loguru>=0.7.0",
     "spikeinterface[full]>=0.101.0",
     "probeinterface>=0.2.21",
-    "pynapple>=0.9.0",
-    "kilosort>=4.1.7",
+    "uv>=0.9.0",
     "jupyter>=1.1.1",
     "ipywidgets>=8.1.8",
     "open-ephys-python-tools>=1.0.1",
@@ -25,7 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 full = [
-    "kilosort>=4.0.30",
+    "kilosort>=4.1.7",
     "torch>=2.0",
 ]
 
