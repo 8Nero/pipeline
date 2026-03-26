@@ -1,0 +1,28 @@
+run_name: "test"
+
+# OpenEphys sessions to be concatenated (the folders containing the Record Node folder)
+session_paths:
+
+# output path
+local_output: "E:\\pipeline_output"
+
+# central storage path
+remote_output:
+
+per_shank: True
+## --------------------- Default parameters --------------------- ##
+
+# central storage data copying option
+copy_mode : "newer"  # options: "newer", "prompt", "skip", "overwrite"
+
+# EEG downsampling frequency (Hz)
+target_fs: 1250.0
+verbose: True
+overwrite: False
+
+# SpikeInterface parallel processing arguments for concatenation
+job_kwargs:
+  n_jobs: 4
+  chunk_duration: '2s'
+  progress_bar: True
+  mp_context: 'spawn'               # for Windows; use 'fork' for macOS/Linux
