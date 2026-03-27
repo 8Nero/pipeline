@@ -1,3 +1,4 @@
+import os
 import sys
 import yaml
 import shutil
@@ -112,17 +113,24 @@ def log_residuals(residuals: np.ndarray):
 
 def log_header():
     import platform
-    from torch import __version__ as torch_version
-    from torch import cuda
     from spikeinterface import __version__ as si_version
-    from kilosort import __version__ as kilosort_version
+    try:
+        from torch import __version__ as torch_version
+        from torch import cuda
+    except ImportError:
+        torch_version = "not installed"
+        cuda = None
+    try:
+        from kilosort import __version__ as kilosort_version
+    except ImportError:
+        kilosort_version = "not installed"
 
     with logger.contextualize(stage="env"):
         logger.debug(f"Python:          {platform.python_version()}")
         logger.debug(f"SpikeInterface:  {si_version}")
         logger.debug(f"Kilosort4:       {kilosort_version}")
         logger.debug(f"PyTorch:         {torch_version}")
-        if cuda.is_available():
+        if cuda and cuda.is_available():
             logger.debug(f"GPU:             {cuda.get_device_name(0)}")
         else:
             logger.warning("GPU: Not available")
@@ -156,6 +164,11 @@ def setup_pipeline(config_path: str, debug: bool = False) -> dict:
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     
+    if config.get('openblas_threads') is not None:
+        openblas_threads = config['openblas_threads']
+        os.environ['OPENBLAS_NUM_THREADS'] = openblas_threads
+        # os.environ['OMP_NUM_THREADS'] = openblas_threads
+
     # Validate session paths
     session_paths = config.get('session_paths', [])
     missing = [p for p in session_paths if not Path(p).exists()]

@@ -223,14 +223,16 @@ def detect_reset(events: np.ndarray, limit: int) -> int:
     """Detect chirp reset point from interval minima."""
     diffs = np.diff(events[:limit])
     minima = find_peaks(-diffs)[0]
+    if len(minima) == 0:
+        raise ValueError(f"No chirp reset detected in first {limit} events")
     return minima[0] + 1
 
 def align_edges(source: np.ndarray, target: np.ndarray, limit: int = 100) -> tuple[np.ndarray, np.ndarray]:
     """Align two event arrays by trimming to matching chirp phase."""
     source_reset = detect_reset(source, limit)
     target_reset = detect_reset(target, limit)
-    logger.debug(f"  source reset index: source_reset. {source[source_reset]}")
-    logger.debug(f"  target reset index: target_reset. {target[target_reset]}")
+    logger.debug(f"  source reset index: {source_reset}. {source[source_reset]}")
+    logger.debug(f"  target reset index: {target_reset}. {target[target_reset]}")
 
     if source_reset > target_reset:
         r = source_reset - target_reset

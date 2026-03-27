@@ -12,25 +12,24 @@ dependencies = [
     "numpy>=2.3",
     "pyyaml>=6.0",
     "loguru>=0.7.0",
-    "spikeinterface[full]>=0.101.0",
+    "spikeinterface[extractors]>=0.101.0",
     "probeinterface>=0.2.21",
-    "uv>=0.9.0",
-    "jupyter>=1.1.1",
-    "ipywidgets>=8.1.8",
     "open-ephys-python-tools>=1.0.1",
-    "cmap>=0.7.2",
-]
-
-[project.optional-dependencies]
-full = [
+    "scipy>=1.12",
+    "matplotlib>=3.8",
     "kilosort>=4.1.7",
     "torch>=2.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "jupyter>=1.1.1",
+    "ipywidgets>=8.1.8",
+    "cmap>=0.7.2",
+]
+
 [project.scripts]
-pipeline-run = "pipeline.run_script:main"
-pipeline-gen_xml = "pipeline.xml_script:main"
-gen_xml = "pipeline.gen_xml:main"
+pipe = "pipeline.run_script:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -8,7 +8,10 @@ from pathlib import Path
 import spikeinterface as si
 import spikeinterface.extractors as se
 
-from kilosort import run_kilosort
+try:
+    from kilosort import run_kilosort
+except ImportError:
+    run_kilosort = None
 from loguru import logger
 from scipy.interpolate import make_interp_spline
 
@@ -31,12 +34,12 @@ def load_probes(session_paths: str | list[str], probe_filter = None) -> dict:
             log.debug(f"Stream: {stream_name} (ID: {stream_id})")
             if "SYNC" not in stream_name:
                 name = stream_name.split('.')[-1]
-                if probe_filter and name in probe_filter:
+                if probe_filter and name not in probe_filter:
                     continue
                 log.info(f"Found {probe_label(name)} (ID: {stream_id})")
                 probes[name] = Probe(name=name, stream_id=stream_id)
                 probes[name].load_sessions(session_paths)
-        return probes
+    return probes
 
 @timed
 def downsample(
@@ -99,6 +102,8 @@ def downsample_probes(probe_paths: dict[str, Path],
 def sort_probes(probe_paths: dict[str, Path],
                 config: dict
                 ) -> None:
+    if run_kilosort is None:
+        raise ImportError("Kilosort is required for spike sorting. Install with: uv sync")
     for name, probe_path in probe_paths.items():
         with logger.contextualize(stage="kilosort", probe=probe_label(name)):
             output = Path(probe_path).parent
