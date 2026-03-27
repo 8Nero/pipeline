@@ -36,10 +36,10 @@ uv sync --extra dev
 
 Install the `pipe` CLI tool directly from GitHub:
 ```bash
-uv tool install --editable "pipeline @ git+https://github.com/8Nero/pipeline.git"
+uv tool install "pipeline@git+https://github.com/8Nero/pipeline.git"
 ```
 
-This makes the `pipe` command available globally.
+This makes the `pipe` command available globally without activating venv.
 
 To update to the latest version:
 ```bash
@@ -62,8 +62,6 @@ cd pipeline
 pip install -e .
 ```
 
----
-
 ## Usage
 
 ### Command line
@@ -73,19 +71,12 @@ If installed with `uv sync`:
 # Activate the virtual environment
 source .venv/bin/activate # Linux / macOS
 .venv\Scripts\activate # Windows
+```
+
+```bash
 # Run pipeline
 pipe --config /path/to/config.yaml
 pipe --config /path/to/config.yaml --debug
-```
-
-If installed with `uv tool install`:
-```bash
-pipe --config /path/to/config.yaml
-```
-
-Or run as a module:
-```bash
-python -m pipeline.run_script --config /path/to/config.yaml
 ```
 
 ### Configuration
@@ -122,7 +113,7 @@ The `copy_mode` option controls how existing files are handled when copying to r
 
 ## How the Pipeline Works
 
-The pipeline runs the following stages in sequence:
+The pipeline runs the following stages in sequence in `pipeline.run_script`:
 
 ```
 load_probes → concatenate → spike sort → downsample EEG → synchronize → copy to remote
