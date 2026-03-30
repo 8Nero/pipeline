@@ -10,7 +10,7 @@ from .utils import setup_pipeline, copy_to_remote
 
 def main():
     parser = argparse.ArgumentParser(description="Automated spike sorting pipeline")
-    parser.add_argument('config', type=str, default='config.yaml')
+    parser.add_argument('config', nargs='?', type=str, default='config.yaml')
     parser.add_argument('--debug', action='store_true')
     args = parser.parse_args()
 
