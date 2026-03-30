@@ -166,7 +166,7 @@ def setup_pipeline(config_path: str, debug: bool = False) -> dict:
     
     if config.get('openblas_threads') is not None:
         openblas_threads = config['openblas_threads']
-        os.environ['OPENBLAS_NUM_THREADS'] = openblas_threads
+        os.environ['OPENBLAS_NUM_THREADS'] = str(openblas_threads)
         # os.environ['OMP_NUM_THREADS'] = openblas_threads
 
     # Validate session paths
@@ -182,7 +182,8 @@ def setup_pipeline(config_path: str, debug: bool = False) -> dict:
     
     config['run_name'] = run_name
     config['local_output'] = local
-    config['remote_output'] = Path(config['remote_output']).resolve() / run_name
+    if config.get('remote_output') is not None:
+        config['remote_output'] = Path(config['remote_output']).resolve() / run_name
     
     # Logger
     timestamp = datetime.now().strftime('%Y%m%d_%H%M')
