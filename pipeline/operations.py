@@ -2,6 +2,8 @@ from .probe import Probe, plot_sync_drift, probe_to_kilosort
 from .utils import timed, probe_label, format_unit, log_rec
 from .decimation import DecimatedRecording
 
+import subprocess
+import sys
 import numpy as np
 from pathlib import Path
 
@@ -145,6 +147,43 @@ def sort_probes(probe_paths: dict[str, Path],
                     device='cuda',
                     verbose_console=config['verbose'],
                 )
+
+def sort_probes_subprocess(probe_paths: dict[str, Path],
+                           config: dict
+                           ) -> None:
+    """Run Kilosort for each probe in subprocess."""
+    for name, probe_path in probe_paths.items():
+        with logger.contextualize(stage="kilosort", probe=probe_label(name)):
+            cmd = [
+                sys.executable, '-m', 'pipeline.sort',
+                str(probe_path),
+            ]
+            if config.get('per_shank'):
+                cmd.append('--per-shank')
+            if config.get('verbose'):
+                cmd.append('--verbose')
+            if config.get('overwrite'):
+                cmd.append('--overwrite')
+
+            openblas = config.get('openblas_threads', 1)
+            cmd.extend(['--openblas-threads', str(openblas)])
+
+            log_dir = Path(config['local_output']) / 'logs'
+            log_file = log_dir / f'kilosort_{name}.log'
+            if log_dir.exists():
+                cmd.extend(['--log-file', str(log_file)])
+
+            logger.info(f"Launching sorting subprocess for {probe_label(name)}")
+            logger.debug(f"  cmd: {' '.join(cmd)}")
+
+            result = subprocess.run(cmd)
+            if result.returncode != 0:
+                logger.error(f"Kilosort subprocess failed (exit code {result.returncode})")
+                raise RuntimeError(
+                    f"Kilosort subprocess for {probe_label(name)} exited with code {result.returncode}"
+                )
+            logger.info(f"Sorting finished for {probe_label(name)}")
+
 
 def synchronize_probes(
         probes: dict,

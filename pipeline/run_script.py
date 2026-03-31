@@ -1,10 +1,11 @@
 import argparse
+import os
 from pathlib import Path
 
 import matplotlib
 matplotlib.use('Agg')
 
-from .operations import downsample_probes, load_probes, sort_probes, concatenate_probes, synchronize_probes
+from .operations import downsample_probes, load_probes, sort_probes_subprocess, concatenate_probes, synchronize_probes
 from .utils import setup_pipeline, copy_to_remote
 
 
@@ -25,7 +26,7 @@ def main():
         for name in probes if name != 'OneBox-ADC'
     }
 
-    sort_probes(probe_paths, config)
+    sort_probes_subprocess(probe_paths, config)
 
     if config.get('target_fs') is not None:
         downsample_probes(probe_paths, config)

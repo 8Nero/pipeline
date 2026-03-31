@@ -164,11 +164,6 @@ def setup_pipeline(config_path: str, debug: bool = False) -> dict:
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     
-    if config.get('openblas_threads') is not None:
-        openblas_threads = config['openblas_threads']
-        os.environ['OPENBLAS_NUM_THREADS'] = str(openblas_threads)
-        # os.environ['OMP_NUM_THREADS'] = openblas_threads
-
     # Validate session paths
     session_paths = config.get('session_paths', [])
     missing = [p for p in session_paths if not Path(p).exists()]

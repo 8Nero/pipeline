@@ -30,6 +30,7 @@ dev = [
 
 [project.scripts]
 pipe = "pipeline.run_script:main"
+sort = "pipeline.sort:main"
 
 [build-system]
 requires = ["hatchling"]
