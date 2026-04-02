@@ -17,9 +17,8 @@ except ImportError:
 from loguru import logger
 from scipy.interpolate import make_interp_spline
 
-def interpolate(spike_times_file, output_file, sync_map):
+def interpolate(spike_times, sync_map, output_file):
     log = logger.bind(stage="interp")
-    spike_times = np.load(spike_times_file).squeeze()
     spl = make_interp_spline(sync_map[:, 0], sync_map[:, 1], k=1)
     adc_spike_times = spl(spike_times)
     np.save(output_file, adc_spike_times)
@@ -219,7 +218,8 @@ def synchronize_probes(
                     shank_id = int(shank_id)
                     spike_times_file = output_dir / 'kilosort' / f'shank_{shank_id}' / 'spike_times.npy'
                     if spike_times_file.exists():
-                        interpolate(spike_times_file,
+                        spike_samples = np.load(spike_times_file).squeeze()
+                        interpolate(spike_samples/probe.get_sampling_frequency(),
                                     output_file=output_dir / f'adc_spike_times_{shank_id}.npy',
                                     sync_map=sync_map)
                     else:
@@ -227,7 +227,8 @@ def synchronize_probes(
             else:
                 spike_times_file = output_dir / 'kilosort' / 'spike_times.npy'
                 if spike_times_file.exists():
-                    interpolate(spike_times_file,
+                    spike_samples = np.load(spike_times_file).squeeze()
+                    interpolate(spike_samples/probe.get_sampling_frequency(),
                                 output_file=output_dir / 'adc_spike_times.npy',
                                 sync_map=sync_map)
                 else:
