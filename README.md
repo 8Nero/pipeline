@@ -75,8 +75,8 @@ source .venv/bin/activate # Linux / macOS
 
 ```bash
 # Run pipeline
-pipe --config /path/to/config.yaml
-pipe --config /path/to/config.yaml --debug
+pipe /path/to/config.yaml
+pipe /path/to/config.yaml --debug
 ```
 
 ### Configuration
