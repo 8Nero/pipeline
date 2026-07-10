@@ -200,9 +200,12 @@ def synchronize_probes(
             if name == 'OneBox-ADC':
                 logger.info('-' * 80)
                 logger.info('ADC samples → timestamps sync map')
-                sync_map = (probe.build_global_references(mode='sample_number'),
-                            probe.build_global_references(mode='timestamp'),)
-                np.save(output_dir / "sync_map.npy", np.column_stack(sync_map))
+                samples, periods_samples = probe.build_global_references(mode='sample_number')
+                timestamps, periods_timestamps = probe.build_global_references(mode='timestamp')
+
+                np.save(output_dir / "sync_map.npy", np.column_stack(samples, timestamps))
+                np.save(output_dir / "periods_samples.npy", np.asarray(periods_samples, dtype=np.int64))
+                np.save(output_dir / "periods_timestamps.npy", np.asarray(periods_timestamps, dtype=np.float64))
                 logger.info(f"Saved: {output_dir / 'sync_map.npy'}")
                 continue
 
@@ -212,6 +215,7 @@ def synchronize_probes(
             _, _ = plot_sync_drift(prb=probe, target=target_probe, save_path=output_dir / "sync_drift.png")
             logger.info(f"Saved sync drift plot: {output_dir / 'sync_drift.png'}")
 
+            # TODO: Log output of interpolation
             if config['per_shank']:
                 prb = probe.get_probe(convert_to_kilosort=True)
                 for shank_id in np.unique(prb['kcoords']):

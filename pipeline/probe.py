@@ -70,8 +70,12 @@ class Probe:
         """Concatenate sync events"""
         if mode not in ['timestamp', 'sample_number']:
             raise ValueError(f"mode should be either 'timestamp' or 'sample_number. Received {mode}")
-        offset = 0.0
         total_globals = []
+        global_periods = []
+
+        offset = 0
+        step = 1 / self.fs if mode == "timestamp" else 1
+
         logger.info(f"Building global references ({mode})")
         logger.info('-' * 80)
         for i, (interval, event) in enumerate(zip(self.intervals[mode], self.events)):
@@ -81,13 +85,15 @@ class Probe:
                 logger.info(f"  local TTL : {format_ttl(locals, mode=mode)} ({format_duration(locals[-1] - locals[0])})")
             else:
                 logger.info(f"  local TTL : {format_ttl(locals, mode=mode)} ({locals[-1] - locals[0]} samples)")
-
             logger.debug(f"  source local interval: {format_ttl(interval, mode=mode)}")
             globals = locals - interval[0] + offset
             total_globals.append(globals)
-            offset += interval[1] - interval[0] +  1 / self.fs
+            global_start = offset
+            global_end = interval[1] - interval[0] + offset + step
+            offset += interval[1] - interval[0] + step
+            global_periods.append((global_start, global_end))
         logger.info('-' * 80)
-        return np.concatenate(total_globals)
+        return np.concatenate(total_globals), global_periods
 
     @timed
     def sync_to(self,
