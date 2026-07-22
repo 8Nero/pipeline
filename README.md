@@ -2,10 +2,15 @@
 
 Automated spike sorting pipeline for OpenEphys sessions with [Kilosort4](https://github.com/MouseLand/Kilosort) and [SpikeInterface](https://github.com/SpikeInterface/spikeinterface).
 
+The pipeline runs the following stages in sequence:
+```
+load OpenEphys sessions → concatenate → run kilosort → downsample to EEG → synchronize → copy to remote
+```
+
 ## Installation
 
 <details>
-<summary>installing uv instructions</summary>
+<summary>instructions for installing uv</summary>
 
 **Linux:**
 ```bash
@@ -76,82 +81,6 @@ The `copy_mode` option controls how existing files are handled when copying to r
 - `skip-all` — Skip all existing files
 - `all` — Overwrite all existing files
 
----
-
-## How the Pipeline Works
-
-The pipeline runs the following stages in sequence in `pipeline.run_script`:
-
-```
-load_probes → concatenate → spike sort → downsample EEG → synchronize → copy to remote
-```
-
-### 1. Load probes
-
-Auto-discovers all probes and the ADC from OpenEphys session folders. Each probe loads its recordings, TTL sync events, and timestamps.
-
-```python
-from pipeline.operations import load_probes
-
-probes = load_probes(["/path/to/session1", "/path/to/session2"])
-# probes = {'ProbeA': Probe(...), 'OneBox-ADC': Probe(...)}
-```
-
-### 2. Concatenate recordings
-
-Multi-session recordings are concatenated into a single binary file per probe using SpikeInterface.
-
-```python
-from pipeline.operations import concatenate_probes
-
-concatenate_probes(probes, config)
-# Writes: {local_output}/{probe}/concat/traces_cached_seg0.raw
-```
-
-### 3. Sorting
-
-Runs Kilosort4 on each neural probe's concatenated recording. Supports per-shank sorting for multi-shank probes.
-
-```python
-from pipeline.operations import sort_probes
-
-# probe_paths: Dictionary of paths to concat 
-# {'ProbeA': {local_output}/{probe}/concat}, ...}
-sort_probes(probe_paths, config)
-```
-
-### 4. Downsample EEG
-
-Decimates the concatenated recording to `target_fs`.
-
-```python
-from pipeline.operations import downsample_probes
-
-downsample_probes(probe_paths, config)
-```
-
-### 5. Synchronize to ADC
-
-```python
-from pipeline.operations import synchronize_probes
-
-synchronize_probes(probes, config)
-# Writes: {local_output}/{probe}/sync_map.npy        — [probe_time, adc_time] pairs
-#         {local_output}/{probe}/adc_spike_times.npy  — spike times in ADC timebase
-#         {local_output}/{probe}/sync_drift.png       — clock drift plot
-```
-
-### 6. Copy to remote
-
-```python
-from pipeline.utils import copy_to_remote
-
-copy_to_remote(local_path=config['local_output'],
-               remote_path=config['remote_output'],
-               overwrite_mode=config['copy_mode'])
-```
-
----
 
 ## Output Structure
 
@@ -179,4 +108,75 @@ copy_to_remote(local_path=config['local_output'],
     ├── periods_samples.npy         # Session start, end time in sample numbers
     └── periods_timestamps.npy      # Session start, end time in seconds
     
+```
+---
+## How the Pipeline Works
+
+The main script in `pipeline.run_script` runs the following stages:
+
+### 1. Load probes
+
+Auto-discovers all probes and the ADC from OpenEphys session folders. Each probe loads its recordings .dat file, TTL sync events, and timestamps.
+
+```python
+from pipeline.operations import load_probes
+
+probes = load_probes(["/path/to/session1", "/path/to/session2"])
+# probes = {'ProbeA': Probe(...), 'OneBox-ADC': Probe(...)}
+```
+
+### 2. Concatenate recordings
+
+Multi-session recordings are concatenated into a single binary file per probe using SpikeInterface.
+
+```python
+from pipeline.operations import concatenate_probes
+
+concatenate_probes(probes, config)
+# Writes: {local_output}/{probe}/concat/traces_cached_seg0.raw
+```
+
+### 3. Sorting
+
+Runs Kilosort4 on each probe's concatenated recording.
+
+```python
+from pipeline.operations import sort_probes
+
+# probe_paths: Dictionary of paths to concat 
+# {'ProbeA': {local_output}/{probe}/concat}, ...}
+sort_probes(probe_paths, config)
+```
+
+### 4. Downsample EEG
+
+Decimates the concatenated recording to `target_fs`. Skip if `target_fs` isn't configured.
+
+```python
+from pipeline.operations import downsample_probes
+
+downsample_probes(probe_paths, config)
+```
+
+### 5. Synchronize to ADC
+
+Interpolate spike timestamps from probe time to ADC time.
+
+```python
+from pipeline.operations import synchronize_probes
+
+synchronize_probes(probes, config)
+# Writes: {local_output}/{probe}/sync_map.npy        — [probe_time, adc_time] pairs
+#         {local_output}/{probe}/adc_spike_times.npy  — spike times in ADC timebase
+#         {local_output}/{probe}/sync_drift.png       — clock drift plot
+```
+
+### 6. Copy to remote
+
+```python
+from pipeline.utils import copy_to_remote
+
+copy_to_remote(local_path=config['local_output'],
+               remote_path=config['remote_output'],
+               overwrite_mode=config['copy_mode'])
 ```
