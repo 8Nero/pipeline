@@ -203,7 +203,7 @@ def synchronize_probes(
                 samples, periods_samples = probe.build_global_references(mode='sample_number')
                 timestamps, periods_timestamps = probe.build_global_references(mode='timestamp')
 
-                np.save(output_dir / "sync_map.npy", np.column_stack(samples, timestamps))
+                np.save(output_dir / "sync_map.npy", np.column_stack([samples, timestamps]))
                 np.save(output_dir / "periods_samples.npy", np.asarray(periods_samples, dtype=np.int64))
                 np.save(output_dir / "periods_timestamps.npy", np.asarray(periods_timestamps, dtype=np.float64))
                 logger.info(f"Saved: {output_dir / 'sync_map.npy'}")

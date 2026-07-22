@@ -17,7 +17,10 @@ def main():
 
     config = setup_pipeline(args.config, debug=args.debug)
 
-    probes = load_probes(config['session_paths'])
+    probes = load_probes(
+        config['session_paths'],
+        probe_filter=config.get('probe_filter'),
+    )
 
     concatenate_probes(probes, config)
 
