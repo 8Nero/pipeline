@@ -1,20 +1,22 @@
 run_name: "my_session"
-session_paths:                      # OpenEphys session folders containing structure.oebin
+session_paths:                      # OpenEphys session folders containing the Record Node folder
   - "/path/to/session1"
   - "/path/to/session2"
-# probe_filter:                     # Optional; omit to process every probe
+# probe_filter:                       # Optional; probe names to skip
 #   - "ProbeA"
 #   - "OneBox-ADC"
 local_output: "/local/disk"         # Local output directory
-remote_output: "/remote/storage"    # Remote storage path (e.g. fsmresfiles), use None for skip
-per_shank: False                     # Run Kilosort per shank
+remote_output: "/remote/storage"    # Optional; Remote storage path to copy
 copy_mode: 'newer'                  # 'newer', 'prompt', 'all', 'skip-all'
 target_fs: 1250.0                   # EEG downsampling (Hz)
 verbose: True
 overwrite: False
+# SpikeInterface arguments for concatenation, EEG downsampling
 job_kwargs:
   n_jobs: 4
   chunk_duration: '2s'
   progress_bar: True
-  mp_context: 'spawn'               # For Windows; use 'fork' for macOS/Linux
-openblas_threads: 24
+  mp_context: 'spawn'               # For Windows; use 'fork' for macOS
+# Kilosort arguments
+per_shank: False
+#openblas_threads: 24

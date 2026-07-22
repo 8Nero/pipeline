@@ -4,11 +4,10 @@ Automated spike sorting pipeline for OpenEphys sessions with [Kilosort4](https:/
 
 ## Installation
 
-### Option A: uv
+<details>
+<summary>installing uv instructions</summary>
 
-#### 1. Install uv
-
-**Linux / macOS:**
+**Linux:**
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
@@ -19,59 +18,22 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 ```
 
 *Exit and reopen your terminal after installation.*
+</details>
 
-#### 2. Clone and install
-```bash
-git clone https://github.com/8Nero/pipeline.git
-cd pipeline
-uv sync
-```
+Use `uv tool` to install the pipeline system wide
 
-For running on Jupyter notebook:
-```bash
-uv sync --extra dev
-```
-
-### Option B: uv tool install
-
-Install the `pipe` CLI tool directly from GitHub:
 ```bash
 uv tool install "pipeline@git+https://github.com/8Nero/pipeline.git"
 ```
-
-This makes the `pipe` command available globally without activating venv.
 
 To update to the latest version:
 ```bash
 uv tool upgrade pipeline
 ```
 
-To uninstall:
-```bash
-uv tool uninstall pipeline
-```
-
-### Option C: conda / mamba
-
-```bash
-mamba create -n pipeline python=3.12
-mamba activate pipeline
-mamba install pytorch pytorch-cuda=12.8 -c pytorch -c nvidia
-git clone https://github.com/8Nero/pipeline.git
-cd pipeline
-pip install -e .
-```
-
 ## Usage
 
-### Command line
-
-If installed with `uv sync`:
-```bash
-# Activate the virtual environment
-source .venv/bin/activate # Linux / macOS
-.venv\Scripts\activate # Windows
-```
+### In the terminal
 
 ```bash
 # Run pipeline
@@ -81,29 +43,31 @@ pipe /path/to/config.yaml --debug
 
 ### Configuration
 
-Create a `config.yaml` from the template (`config_template.yaml`):
+The pipeline takes path to a `.yaml` file as input:
 
 ```yaml
 run_name: "my_session"
-session_paths:                      # OpenEphys session folders containing structure.oebin
+session_paths:                      # OpenEphys session folders containing the Record Node folder
   - "/path/to/session1"
   - "/path/to/session2"
-probe_filter:                       # Optional; omit to process every probe
-  - "ProbeA"
-  - "OneBox-ADC"
+# probe_filter:                       # Optional; probe names to skip
+#   - "ProbeA"
+#   - "OneBox-ADC"
 local_output: "/local/disk"         # Local output directory
-remote_output: "/remote/storage"    # Remote storage path (e.g. fsmresfiles)
-per_shank: False                     # Run Kilosort per shank
+remote_output: "/remote/storage"    # Optional; Remote storage path to copy
 copy_mode: 'newer'                  # 'newer', 'prompt', 'all', 'skip-all'
 target_fs: 1250.0                   # EEG downsampling (Hz)
 verbose: True
 overwrite: False
+# SpikeInterface arguments for concatenation, EEG downsampling
 job_kwargs:
   n_jobs: 4
   chunk_duration: '2s'
   progress_bar: True
-  mp_context: 'spawn'               # For Windows; use 'fork' for macOS/Linux
-openblas_threads: 24
+  mp_context: 'spawn'               # For Windows; use 'fork' for macOS
+# Kilosort arguments
+per_shank: False
+#openblas_threads: 24
 ```
 
 The `copy_mode` option controls how existing files are handled when copying to remote storage:
@@ -211,5 +175,8 @@ copy_to_remote(local_path=config['local_output'],
 ├── ProbeB/
 │   └── ...
 └── OneBox-ADC/
-    └── sync_map.npy                # ADC samples → timestamps mapping
+    ├── sync_map.npy                # ADC samples → timestamps mapping
+    ├── periods_samples.npy         # Session start, end time in sample numbers
+    └── periods_timestamps.npy      # Session start, end time in seconds
+    
 ```

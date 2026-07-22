@@ -39,7 +39,7 @@ def load_probes(session_paths: str | list[str], probe_filter = None) -> dict:
                     continue
                 log.info(f"Found {probe_label(name)} (ID: {stream_id})")
                 probes[name] = Probe(name=name, stream_id=stream_id)
-                probes[name].load_sessions(session_paths)
+                probes[name].load_sessions(session_path)
     return probes
 
 @timed
