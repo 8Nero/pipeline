@@ -33,13 +33,15 @@ def load_probes(session_paths: str | list[str], probe_filter = None) -> dict:
         stream_names, stream_ids = se.get_neo_streams('openephysbinary', session_path)
         for stream_name, stream_id in zip(stream_names, stream_ids):
             log.debug(f"Stream: {stream_name} (ID: {stream_id})")
-            if "SYNC" not in stream_name:
-                name = stream_name.split('.')[-1]
-                if probe_filter and name not in probe_filter:
-                    continue
-                log.info(f"Found {probe_label(name)} (ID: {stream_id})")
+            if "SYNC" in stream_name:
+                continue
+            name = stream_name.split('.')[-1]
+            if probe_filter and name in probe_filter:
+                continue
+            log.info(f"Found {probe_label(name)} (ID: {stream_id})")
+            if name not in probes:
                 probes[name] = Probe(name=name, stream_id=stream_id)
-                probes[name].load_sessions(session_path)
+            probes[name].load_sessions(session_path)
     return probes
 
 @timed
