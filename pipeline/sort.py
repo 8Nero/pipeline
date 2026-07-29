@@ -13,15 +13,16 @@ def main():
     parser.add_argument('--per-shank', action='store_true', help='Sort each shank independently')
     parser.add_argument('--verbose', action='store_true', help='Enable kilosort console output')
     parser.add_argument('--overwrite', action='store_true', help='Overwrite existing results')
-    parser.add_argument('--openblas-threads', type=int, default=1,
-                        help='OPENBLAS/MKL thread count (default: 1)')
+    parser.add_argument('--openblas-threads', type=int, default=None,
+                        help='OPENBLAS/MKL thread count (default: None)')
     parser.add_argument('--log-file', type=str, default=None,
                         help='Write log output to file instead of stderr')
     args = parser.parse_args()
 
     # Set threading env vars BEFORE importing numpy/torch/kilosort
-    os.environ['OPENBLAS_NUM_THREADS'] = str(args.openblas_threads)
-    os.environ['MKL_NUM_THREADS'] = str(args.openblas_threads)
+    if args.openblas_threads is not None:
+        os.environ['OPENBLAS_NUM_THREADS'] = str(args.openblas_threads)
+        os.environ['MKL_NUM_THREADS'] = str(args.openblas_threads)
 
     import matplotlib
     matplotlib.use('Agg')

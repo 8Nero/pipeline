@@ -166,8 +166,9 @@ def sort_probes_subprocess(probe_paths: dict[str, Path],
             if config.get('overwrite'):
                 cmd.append('--overwrite')
 
-            openblas = config.get('openblas_threads', 1)
-            cmd.extend(['--openblas-threads', str(openblas)])
+            openblas = config.get('openblas_threads', None)
+            if openblas is not None:
+                cmd.extend(['--openblas-threads', str(openblas)])
 
             log_dir = Path(config['local_output']) / 'logs'
             log_file = log_dir / f'kilosort_{name}.log'
