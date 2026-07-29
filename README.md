@@ -1,44 +1,49 @@
 # Pipeline
 
-Automated spike sorting pipeline for OpenEphys sessions with [Kilosort4](https://github.com/MouseLand/Kilosort) and [SpikeInterface](https://github.com/SpikeInterface/spikeinterface).
+Automated spike-sorting pipeline for Open Ephys sessions using [Kilosort4](https://github.com/MouseLand/Kilosort) and [SpikeInterface](https://github.com/SpikeInterface/spikeinterface).
 
 The pipeline runs the following stages in sequence:
-```
-load OpenEphys sessions → concatenate → run kilosort → downsample to EEG → synchronize → copy to remote
+
+```text
+load Open Ephys sessions → concatenate recordings → run Kilosort4 → decimate for EEG (optional) → synchronize time bases → copy outputs to remote storage (optional)
 ```
 
 ## Installation
 
 <details>
-<summary>instructions for installing uv</summary>
+<summary>Install uv</summary>
 
 **Linux:**
+
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 **Windows (PowerShell):**
+
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
 *Exit and reopen your terminal after installation.*
+
 </details>
 
-Use `uv tool` to install the pipeline system wide
+Use `uv tool` to install the pipeline as a globally available command:
 
 ```bash
 uv tool install "pipeline@git+https://github.com/8Nero/pipeline.git"
 ```
 
 To update to the latest version:
+
 ```bash
 uv tool upgrade pipeline
 ```
 
 ## Usage
 
-### In the terminal
+### In the Terminal
 
 ```bash
 # Run pipeline
@@ -48,135 +53,68 @@ pipe /path/to/config.yaml --debug
 
 ### Configuration
 
-The pipeline takes path to a `.yaml` file as input:
+The pipeline accepts the path to a `.yaml` configuration file:
 
 ```yaml
 run_name: "my_session"
-session_paths:                      # OpenEphys session folders containing the Record Node folder
+session_paths:                      # Open Ephys session directories containing a `Record Node` subdirectory
   - "/path/to/session1"
   - "/path/to/session2"
 # probe_filter:                       # Optional; probe names to skip
 #   - "ProbeA"
-#   - "OneBox-ADC"
 local_output: "/local/disk"         # Local output directory
-remote_output: "/remote/storage"    # Optional; Remote storage path to copy
+remote_output: "/remote/storage"    # Optional; local or mounted filesystem destination
 copy_mode: 'newer'                  # 'newer', 'prompt', 'all', 'skip-all'
-target_fs: 1250.0                   # EEG downsampling (Hz)
+target_fs: 1250.0                   # Target EEG sampling frequency (Hz)
 verbose: True
 overwrite: False
-# SpikeInterface arguments for concatenation, EEG downsampling
+# SpikeInterface concatenation arguments
 job_kwargs:
   n_jobs: 4
   chunk_duration: '2s'
-  progress_bar: True
+  progress_bar: True                # Also controls EEG downsampling progress
   mp_context: 'spawn'               # For Windows; use 'fork' for macOS
-# Kilosort arguments
+# Kilosort4 arguments
 per_shank: False
-#openblas_threads: 24
+# openblas_threads: 24
 ```
-
-The `copy_mode` option controls how existing files are handled when copying to remote storage:
-- `newer` — Only overwrite if local file is newer (default)
-- `prompt` — Prompt before overwriting each file
-- `skip-all` — Skip all existing files
-- `all` — Overwrite all existing files
-
 
 ## Output Structure
 
-```
+The following tree shows the main outputs from a typical run; SpikeInterface and Kilosort4 may create additional files.
+
+```text
 {local_output}/{run_name}/
 ├── logs/
-│   └── {run_name}_{timestamp}.log
+│   ├── {run_name}_{timestamp}.log
+│   └── kilosort_{probe}.log
 ├── ProbeA/
 │   ├── concat/
-│   │   ├── traces_cached_seg0.raw  # Concatenated binary file (int16)
+│   │   ├── traces_cached_seg0.raw  # Concatenated binary data
 │   │   └── si_folder.json          # SpikeInterface metadata
-│   ├── eeg.dat                     # Downsampled EEG (if target_fs set)
-│   ├── probe_geometry.png          # Configurated probe plot
-│   ├── sync_map.npy                # [N x 2] array of [probe_time, adc_time] pairs
+│   ├── eeg.dat                     # Decimated EEG (if target_fs is set)
+│   ├── probe_geometry.png          # Probe geometry plot
+│   ├── sync_map.npy                # [N × 2] array of [probe_time_s, adc_time_s] pairs
 │   ├── sync_drift.png              # Clock drift visualization
-│   ├── adc_spike_times.npy         # Spike times interpolated to ADC timebase
+│   ├── adc_spike_times.npy         # Spike times interpolated to the ADC time base
 │   └── kilosort/                   # Kilosort4 outputs
-│       ├── spike_times.npy
-│       ├── spike_clusters.npy
-│       └── ...
 ├── ProbeB/
 │   └── ...
 └── OneBox-ADC/
-    ├── sync_map.npy                # ADC samples → timestamps mapping
-    ├── periods_samples.npy         # Session start, end time in sample numbers
-    └── periods_timestamps.npy      # Session start, end time in seconds
-    
+    ├── concat/
+    │   ├── traces_cached_seg0.raw  # Concatenated ADC binary data
+    │   └── si_folder.json          # SpikeInterface metadata
+    ├── sync_map.npy                # Global ADC sample indices → timestamps (s)
+    ├── periods_samples.npy         # Global session start/end sample indices
+    └── periods_timestamps.npy      # Global session start/end timestamps (s)
 ```
----
+
+With `per_shank: True`, Kilosort4 results are stored in `kilosort/shank_<id>/`, and interpolated spike times are written to `adc_spike_times_<id>.npy`.
+
+## Running on Quest
+
+To run the pipeline on Quest compute nodes using Slurm, see the [Quest guide](slurm_guide.md).
+
 ## How the Pipeline Works
 
-The main script in `pipeline.run_script` runs the following stages:
-
-### 1. Load probes
-
-Auto-discovers all probes and the ADC from OpenEphys session folders. Each probe loads its recordings .dat file, TTL sync events, and timestamps.
-
-```python
-from pipeline.operations import load_probes
-
-probes = load_probes(["/path/to/session1", "/path/to/session2"])
-# probes = {'ProbeA': Probe(...), 'OneBox-ADC': Probe(...)}
-```
-
-### 2. Concatenate recordings
-
-Multi-session recordings are concatenated into a single binary file per probe using SpikeInterface.
-
-```python
-from pipeline.operations import concatenate_probes
-
-concatenate_probes(probes, config)
-# Writes: {local_output}/{probe}/concat/traces_cached_seg0.raw
-```
-
-### 3. Sorting
-
-Runs Kilosort4 on each probe's concatenated recording.
-
-```python
-from pipeline.operations import sort_probes
-
-# probe_paths: Dictionary of paths to concat 
-# {'ProbeA': {local_output}/{probe}/concat}, ...}
-sort_probes(probe_paths, config)
-```
-
-### 4. Downsample EEG
-
-Decimates the concatenated recording to `target_fs`. Skip if `target_fs` isn't configured.
-
-```python
-from pipeline.operations import downsample_probes
-
-downsample_probes(probe_paths, config)
-```
-
-### 5. Synchronize to ADC
-
-Interpolate spike timestamps from probe time to ADC time.
-
-```python
-from pipeline.operations import synchronize_probes
-
-synchronize_probes(probes, config)
-# Writes: {local_output}/{probe}/sync_map.npy        — [probe_time, adc_time] pairs
-#         {local_output}/{probe}/adc_spike_times.npy  — spike times in ADC timebase
-#         {local_output}/{probe}/sync_drift.png       — clock drift plot
-```
-
-### 6. Copy to remote
-
-```python
-from pipeline.utils import copy_to_remote
-
-copy_to_remote(local_path=config['local_output'],
-               remote_path=config['remote_output'],
-               overwrite_mode=config['copy_mode'])
-```
+See the [tutorial notebook](tutorial.ipynb) for a detailed walkthrough.
