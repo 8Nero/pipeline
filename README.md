@@ -58,7 +58,7 @@ The pipeline accepts the path to a `.yaml` configuration file:
 ```yaml
 run_name: "my_session"
 session_paths:                      # Open Ephys session directories containing a `Record Node` subdirectory
-  - "/path/to/session1"
+  - r'\path\to\session1'
   - "/path/to/session2"
 # probe_filter:                       # Optional; probe names to skip
 #   - "ProbeA"
